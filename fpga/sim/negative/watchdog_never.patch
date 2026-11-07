@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_pll_watchdog.v b/fpga/rtl/pocket_pll_watchdog.v
+index ea62f9f..f42112e 100644
+--- a/fpga/rtl/pocket_pll_watchdog.v
++++ b/fpga/rtl/pocket_pll_watchdog.v
+@@ -20,7 +20,7 @@ always @(posedge clk) begin
+         if (pulse_cnt == PULSE - 1) begin pll_reset <= 1'b0; pulse_cnt <= 7'd0; end
+         else pulse_cnt <= pulse_cnt + 7'd1;
+     end else if (locked_s) wait_cnt <= 22'd0;
+-    else if (wait_cnt == TIMEOUT - 1) begin pll_reset <= 1'b1; wait_cnt <= 22'd0; end
++    else if (1'b0) begin pll_reset <= 1'b1; wait_cnt <= 22'd0; end
+     else wait_cnt <= wait_cnt + 22'd1;
+ end
+ endmodule

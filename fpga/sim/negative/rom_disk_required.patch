@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_boot_assets.v b/fpga/rtl/pocket_boot_assets.v
+index cb9dc97..81d13f3 100644
+--- a/fpga/rtl/pocket_boot_assets.v
++++ b/fpga/rtl/pocket_boot_assets.v
+@@ -86,7 +86,7 @@ module pocket_boot_assets(
+                 complete<=1;
+                 if(seen_m)finish_m<=1;else protocol_error<=4'hb;
+                 if(seen_f)finish_f<=1;else protocol_error<=4'hb;
+-                if(seen_c)finish_c<=1;
++                if(seen_c)finish_c<=1;else protocol_error<=4'hb;
+             end
+             if(finish_m && ready_m)begin end_m<=1;finish_m<=0;end
+             if(finish_f && ready_f)begin end_f<=1;finish_f<=0;end

@@ -1,0 +1,3 @@
+[submodule "cores/karabas-go-core-rk86"]
+	path = cores/karabas-go-core-rk86
+	url = https://github.com/BarabashkaD/karabas-go-core-rk86

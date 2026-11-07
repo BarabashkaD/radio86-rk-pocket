@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_interact.v b/fpga/rtl/pocket_interact.v
+index 59f38bf..b11083b 100644
+--- a/fpga/rtl/pocket_interact.v
++++ b/fpga/rtl/pocket_interact.v
+@@ -40,7 +40,7 @@ always @(posedge clk) begin
+         end else if (offset == 8'h04) sound_on <= bridge_wr_data[0];
+         else if (offset == 8'h08) green <= bridge_wr_data[0];
+         else if (offset == 8'h0C) begin
+-            if (bridge_wr_data <= 32'd3) preset <= bridge_wr_data[1:0];
++            if (bridge_wr_data <= 32'd4) preset <= bridge_wr_data[1:0];
+         end else if (offset == 8'h10) begin
+             if (bridge_wr_data <= 32'd1) keys_on <= bridge_wr_data[0];
+         end else if (offset == 8'h14) begin

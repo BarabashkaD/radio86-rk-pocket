@@ -1,0 +1,38 @@
+{
+  "assets": [
+    {
+      "name": "monitor.bin",
+      "slot": 0,
+      "size": 2048,
+      "crc32": "BF1CEEA5",
+      "sha256": "b52bc01ce40fc03e4c6e2369b74e30ef9e9cebc6db73c03988d76587af3eb946",
+      "source": "core:src/roms/BIOS.BIN",
+      "licence": "shipped in the Karabas core (src/roms), modified BSD repository; original Radio-86RK monitor"
+    },
+    {
+      "name": "font.bin",
+      "slot": 1,
+      "size": 1024,
+      "crc32": "21E9ED84",
+      "sha256": "6e59b35d5595353bcc1a7dc9da1f45a84d0596e482d06f1fecc3a68367e7f156",
+      "source": "core:src/roms/FONT.BIN",
+      "licence": "shipped in the Karabas core (src/roms), modified BSD repository; also built into the bitstream for the on-screen keyboard"
+    },
+    {
+      "name": "romdisk.bin",
+      "slot": 2,
+      "size": 32256,
+      "crc32": "4B1C86D6",
+      "sha256": "2e870be7e9820ae34ac62e60479bb5d14c07437a89609cbe0fdfb450ce631904",
+      "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/rom_disk.bin",
+      "licence": "skiselev/radio-86rk, GPL-3.0; provenance of the program binaries not established; public distribution decided at release (D6)"
+    }
+  ],
+  "licences": [
+    {
+      "name": "romdisk-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/LICENSE",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    }
+  ]
+}

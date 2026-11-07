@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_memory.v b/fpga/rtl/pocket_memory.v
+index 1d61a13..d52dade 100644
+--- a/fpga/rtl/pocket_memory.v
++++ b/fpga/rtl/pocket_memory.v
+@@ -30,7 +30,7 @@ integer k;
+ initial for (k = 0; k < 32768; k = k + 1) ram[k] = 8'h00;
+ 
+ reg prev_wr_n = 1'b1;
+-assign cpu_write = !reset && prev_wr_n && !cpu_wr_n;
++assign cpu_write = !reset && !cpu_wr_n;
+ wire ram_write = cpu_write && !cpu_a[15];
+ wire [14:0] port_a = load_active ? load_a : cpu_a[14:0];
+ wire port_we = load_active ? load_we : ram_write;

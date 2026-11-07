@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_cold_clear.v b/fpga/rtl/pocket_cold_clear.v
+index 40df33d..ce3cdc8 100644
+--- a/fpga/rtl/pocket_cold_clear.v
++++ b/fpga/rtl/pocket_cold_clear.v
+@@ -17,7 +17,7 @@ always @(posedge clk) begin
+         active <= 1'b1;
+         a <= 15'd0;
+     end else if (active) begin
+-        if (a == 15'h7FFF) begin active <= 1'b0; done <= 1'b1; end
++        if (a == 15'h7FFE) begin active <= 1'b0; done <= 1'b1; end
+         a <= a + 15'd1;
+     end
+ end

@@ -1,0 +1,15 @@
+{
+  "input": {
+    "magic": "APF_VER_1",
+    "controllers": [{"type": "default", "mappings": [
+      {"id": 0, "name": "Key A", "key": "pad_btn_a"},
+      {"id": 1, "name": "Key B", "key": "pad_btn_b"},
+      {"id": 2, "name": "Key X", "key": "pad_btn_x"},
+      {"id": 3, "name": "Key Y", "key": "pad_btn_y"},
+      {"id": 4, "name": "Keyboard", "key": "pad_trig_l"},
+      {"id": 5, "name": "RUS/LAT", "key": "pad_trig_r"},
+      {"id": 6, "name": "Key Start", "key": "pad_btn_start"},
+      {"id": 7, "name": "Key Select", "key": "pad_btn_select"}
+    ]}]
+  }
+}

@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_remap.v b/fpga/rtl/pocket_remap.v
+index 2e20b6d..57a759e 100644
+--- a/fpga/rtl/pocket_remap.v
++++ b/fpga/rtl/pocket_remap.v
+@@ -22,7 +22,7 @@ always @* begin
+     start  = escape == 2'd1 ? AR2 : VK;
+     select = escape == 2'd0 ? AR2 : VK;
+     // {Select, Start, Y, X, B, A, Right, Left, Down, Up}
+-    if (keys_on) map = {select, start, left, up, down, right, SPACE, KEY_Y, VK, ZB};
++    if (1'b0) map = {select, start, left, up, down, right, SPACE, KEY_Y, VK, ZB};
+     else         map = {select, start, KEY_Y, ZB, VK, SPACE, right, left, down, up};
+ end
+ endmodule

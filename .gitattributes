@@ -1,0 +1,2 @@
+# Keep every file byte for byte as committed (patches, Quartus and iverilog read them as is).
+* -text

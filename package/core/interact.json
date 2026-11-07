@@ -1,0 +1,19 @@
+{
+  "interact": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {"name": "Reset", "id": 32, "type": "action", "enabled": true, "address": "0x00000100", "value": 1},
+      {"name": "Cold boot", "id": 33, "type": "action", "enabled": true, "address": "0x00000100", "value": 2},
+      {"name": "Sound", "id": 34, "type": "check", "enabled": true, "persist": true, "address": "0x00000104", "defaultval": 1, "value": 1, "value_off": 0},
+      {"name": "Text colour", "id": 35, "type": "list", "enabled": true, "persist": true, "address": "0x00000108", "defaultval": 0,
+       "options": [{"value": 0, "name": "White"}, {"value": 1, "name": "Green"}]},
+      {"name": "Keys", "id": 36, "type": "list", "enabled": true, "persist": true, "address": "0x0000010C", "defaultval": 0,
+       "options": [{"value": 0, "name": "Cursor"}, {"value": 1, "name": "Digits 7-8-9-6"}, {"value": 2, "name": "Digits 8-4-6-2"}, {"value": 3, "name": "WASD"}]},
+      {"name": "Keys on", "id": 37, "type": "list", "enabled": true, "persist": true, "address": "0x00000110", "defaultval": 0,
+       "options": [{"value": 0, "name": "D-pad"}, {"value": 1, "name": "A B X Y"}]},
+      {"name": "Escape (AR2)", "id": 38, "type": "list", "enabled": true, "persist": true, "address": "0x00000114", "defaultval": 0,
+       "options": [{"value": 0, "name": "Select"}, {"value": 1, "name": "Start"}, {"value": 2, "name": "None"}]}
+    ],
+    "messages": []
+  }
+}
