@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_remap.v b/fpga/rtl/pocket_remap.v
+index 2e20b6d..9879565 100644
+--- a/fpga/rtl/pocket_remap.v
++++ b/fpga/rtl/pocket_remap.v
+@@ -19,7 +19,7 @@ always @* begin
+         2'd3:    begin up = 7'd55; down = 7'd51; left = 7'd33; right = 7'd36; end   // W S A D
+         default: begin up = 7'd13; down = 7'd15; left = 7'd12; right = 7'd14; end   // cursor keys
+     endcase
+-    start  = escape == 2'd1 ? AR2 : VK;
++    start  = escape == 2'd0 ? AR2 : VK;
+     select = escape == 2'd0 ? AR2 : VK;
+     // {Select, Start, Y, X, B, A, Right, Left, Down, Up}
+     if (keys_on) map = {select, start, left, up, down, right, SPACE, KEY_Y, VK, ZB};

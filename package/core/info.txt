@@ -1,0 +1,11 @@
+Radio-86RK for Analogue Pocket, the machine of the Karabas core.
+* Open the on-screen keyboard: L. D-pad selects, A presses, B Enter (VK), X Backspace (ZB), Y Space.
+* Start switches the ABC/FX page; R holds RUS/LAT.
+* Panel closed: the buttons follow Core Settings > Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y) and Escape (Select, Start or None).
+* Keys on D-pad: A Space, B VK, X ZB, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down VK, Up ZB, Left Y.
+* Escape: the chosen button (Select or Start) sends AR2, the other sends VK; None: both send VK.
+* Core Settings: Reset keeps memory, Cold boot clears it; Sound; Text colour.
+* ROM disk: type R0,1FF,0 then Enter, then G0 then Enter for its menu.
+* ROM disk item 3 (DP/DDT) overwrites the menu loader, as on the real machine; use Reset.
+* No Memories (savestates) and no sleep.
+Credits: Radio-86RK replica by Dmitry Tselikov; Karabas core by Andy Karpov; ROM disk and keyboard design by Sergey Kiselev (https://github.com/skiselev/radio-86rk).

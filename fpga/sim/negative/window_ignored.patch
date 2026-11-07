@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_memory.v b/fpga/rtl/pocket_memory.v
+index 1d61a13..3d1e2ce 100644
+--- a/fpga/rtl/pocket_memory.v
++++ b/fpga/rtl/pocket_memory.v
+@@ -64,7 +64,7 @@ wire window = cpu_a[15:13] == 3'd5;
+ wire memory = rom || !cpu_a[15];
+ wire ram_hit = cpu_tag_ok && cpu_tag == {1'b0, cpu_a[14:0]};
+ wire rom_hit = rom_tag == cpu_a[10:0];
+-assign cpu_ready = (window ? window_ready : memory ? (rom ? rom_hit : ram_hit) : 1'b1) && !vid_rd;
++assign cpu_ready = (window ? 1'b1 : memory ? (rom ? rom_hit : ram_hit) : 1'b1) && !vid_rd;
+ assign mem_di = vid_rd ? dma_q : rom ? rom_data : cpu_q;
+ 
+ always @(posedge clk)
