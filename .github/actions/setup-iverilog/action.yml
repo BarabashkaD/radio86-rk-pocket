@@ -1,0 +1,54 @@
+# Icarus Verilog v13_0 (the version the project pins), built from source once and cached. The
+# source is the tag v13_0 checked against its commit; the cache key holds the hash of this file,
+# so a change of the recipe, the tag or the commit builds again. The cache is saved right after a
+# successful build and version check, also when a later step of the job fails.
+name: setup-iverilog
+description: Icarus Verilog v13_0 built from source, cached, on PATH
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/iverilog
+        key: iverilog-v13_0-${{ runner.os }}-${{ runner.arch }}-ubuntu-24.04-${{ hashFiles('.github/actions/setup-iverilog/action.yml') }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      name: Build Icarus Verilog v13_0
+      shell: pwsh
+      env:
+        IVERILOG_TAG: v13_0
+        IVERILOG_SHA: dfeee909ed9f20b4870dd93423156c0170c0e1ff
+      run: |
+        sudo apt-get update -q
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        sudo apt-get install -y -q autoconf gperf flex bison g++ make libreadline-dev libbz2-dev zlib1g-dev
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        $src = Join-Path $env:RUNNER_TEMP 'iverilog-src'
+        git clone -q --depth 1 --branch $env:IVERILOG_TAG https://github.com/steveicarus/iverilog.git $src
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        $head = git -C $src rev-parse HEAD
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        if ($head -ne $env:IVERILOG_SHA) { Write-Error "iverilog $env:IVERILOG_TAG is $head, expected $env:IVERILOG_SHA"; exit 1 }
+        Push-Location $src
+        sh ./autoconf.sh
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        ./configure --prefix="$HOME/iverilog"
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        make "-j$([Environment]::ProcessorCount)"
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        make install
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        Pop-Location
+    - name: Icarus Verilog on PATH, version check
+      shell: pwsh
+      run: |
+        "$HOME/iverilog/bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+        $v = (& "$HOME/iverilog/bin/vvp" -V 2>&1 | Select-Object -First 1)
+        $global:LASTEXITCODE = 0
+        "iverilog: $v"
+        if ("$v" -notmatch '13\.0') { Write-Error "expected Icarus Verilog 13.0, got: $v"; exit 1 }
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/iverilog
+        key: ${{ steps.cache.outputs.cache-primary-key }}

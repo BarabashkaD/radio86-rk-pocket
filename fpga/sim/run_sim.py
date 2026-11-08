@@ -105,6 +105,7 @@ TESTS.update({
     'dpddt': system('dpddt'),
     'tetris': system('tetris'),
     'k1': system('k1'),  # writes k1_<n>.hex and k1.log: python -B scripts/k1/check_frames.py build/sim/k1
+    'system_k1_panel': system('k1_panel'),  # CI: python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3
 })
 
 
@@ -155,6 +156,7 @@ def run(name, test, iverilog, vvp, env, fault=None):
     files = test['files']() if callable(test['files']) else list(test['files'])
     if fault:
         sys.path.insert(0, os.path.join(CORE, 'sim'))
+        sys.dont_write_bytecode = True  # no __pycache__ in the core submodule
         from negative import apply_patch, patched_files  # the core helper (core PR14)
         patch = os.path.join(NEG, fault + '.patch')
         copy_root = os.path.join(out, 'copy')

@@ -3,12 +3,13 @@
 // System testbench of the Pocket target (spec 9.4-9.7): pocket_system with the bridge and data
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
-// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|dpddt|tetris|k1
+// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|dpddt|tetris|k1|k1_panel
 // +timeout=<clk to wait for the monitor to take a key, default 4000000>
 // Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex;
 // k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
 // and k1.log (STEP lines and, per capture, "STATE <n> <panel state hex> <green> <what>", the state
 // pocket_frame_video latched for that frame; scripts/k1/check_frames.py renders the model for it).
+// k1_panel (run_sim.py test system_k1_panel, CI): the panel without the monitor, 3 captures (palettes 0, 1, 2).
 // The keyboard timings run on a 10x shorter base: pocket_keyboard CLK_HZ = 7425000, so each of its
 // millisecond parameters (TAP_MS, CHORD_MS, ...) lasts a tenth of its time in the build.
 // The ROM disk scenarios type through the reserved second keyboard input (hid_cols / hid_mods of
@@ -555,6 +556,45 @@ initial begin
         close_panel;
         $fclose(k1_log);
         $display("PASS k1: panel opened, RK8 typed through it, %0d RGB captures (k1_<n>.hex, k1.log)", captures);
+    end else if (scenario == "k1_panel") begin
+        // CI (run_sim.py test system_k1_panel): the keyboard is enabled by assets_valid and
+        // memory_ready, not by the monitor, so the panel opens right after the assets and the cold
+        // clear while the monitor boots underneath. Checks the chord, the panel in the real output
+        // (bus CDC, frame latch, overlay) for the palettes 0, 1, 2, the Shift latch and the Ctrl
+        // line; not the typing, B lit or RUS (full k1). Risk: the captures fall in native frames
+        // of about 3-9, while the monitor initialises its workspace (FE63 in frame 7); the RUS bit
+        // of the state is rus_mode (RAM 7606 bit 0), so a monitor write of 7606 with bit 0 set in
+        // that time would fail a capture (not seen; the STATE line of k1.log then shows rus = 1).
+        k1_log = $fopen("k1.log", "w");
+        if (k1_line(K1_G) != 7'd39 || k1_line(K1_R) != 7'd50 || k1_line(K1_K) != 7'd43 || k1_line(K1_8) != 7'd24)
+            fail("the K1 key ids of this TB do not match pocket_k1_layout.vh");
+        load(1'b0);
+        bridge_write(32'h10C, 2'd0);              // a persisted value, written before Reset Exit
+        reset_n = 1'b1;
+        wait_frames(2);                           // written frames in both frame banks
+        k1_step("assets, no ROM disk, 2 frames; L+R");
+        open_panel; wait_vs(1);
+        capture_k1(k1_state(K1_G, 0, 0, 0, 64'd0, 2'd0), "LAT, selection G, palette 0 (v1.1)");
+        k1_step("L tap: Shift latched; L tap; L held: Ctrl");
+        tap(B_L);
+        if (!sys.rk86.keyboard.shift_latch) fail("the L tap did not latch Shift");
+        tap(B_L);
+        if (sys.rk86.keyboard.shift_latch) fail("the second L tap did not clear the Shift latch");
+        // L held for wait_vs(3): at least 2 whole displayed frames (2 x 16.7 ms = 33 ms) after the
+        // press, past the tap window (TAP_MS 250 with CLK_HZ 7425000: 25 ms here); wait_vs(2) can
+        // end after 16.7 ms, and the release would then toggle the Shift latch.
+        pad = {4'h1, 12'h0, B_L}; wait_vs(3);
+        if (!sys.rk86.keyboard.ctrl_line) fail("L held does not pull the Ctrl line");
+        pad = {4'h1, 28'h0}; repeat (8) @(negedge clk);
+        if (sys.rk86.keyboard.shift_latch || sys.rk86.keyboard.ctrl_line) fail("L held: Shift toggled or Ctrl kept after the release");
+        k1_step("palettes 1 and 2");
+        bridge_write(32'h118, 1); wait_vs(1);
+        capture_k1(k1_state(K1_G, 0, 0, 0, 64'd0, 2'd1), "LAT, palette 1 (v1.4)");
+        bridge_write(32'h118, 2); wait_vs(1);
+        capture_k1(k1_state(K1_G, 0, 0, 0, 64'd0, 2'd2), "LAT, palette 2 (mono)");
+        close_panel;
+        $fclose(k1_log);
+        $display("PASS k1_panel: panel opened without the monitor, Shift latch and Ctrl, %0d RGB captures", captures);
     end else fail("unknown scenario");
     $finish;
 end
