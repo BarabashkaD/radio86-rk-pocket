@@ -14,6 +14,7 @@ module radio86rk_pocket(
     input  wire  [1:0] preset,
     input  wire        keys_on,
     input  wire  [1:0] escape,
+    input  wire  [1:0] palette,           // Keyboard colours (interact 0x118)
     output wire [10:0] monitor_address,
     input  wire  [7:0] monitor_data,
     input  wire [10:0] monitor_tag,
@@ -31,8 +32,9 @@ module radio86rk_pocket(
     output wire [15:0] cpu_address,
     output wire        memory_ready,
     output reg  [31:0] native_frames = 32'd0,
-    output wire [31:0] key_status,        // bridge 0x34 (POC layout)
-    output wire [31:0] mode_status        // bridge 0x44: {dock, ctrl, shift, rus, fx}
+    output wire [31:0] key_status,        // bridge 0x34: {panel_open, selection[6:0]}
+    output wire [31:0] mode_status,       // bridge 0x44: {dock, shift latch, RUS, Ctrl, Shift lines, rus_mode}
+    output wire [77:0] panel_state        // the K1 panel state (pocket_k1_panel), clk domain
 );
 //--------- the clock enable: 160 of 297 clk, 40 M ce/s on average (docs/integration.md 2) -----
 reg [8:0] cadence = 9'd0;
@@ -93,24 +95,27 @@ pocket_cart_ppi cart(.clk(clk), .reset(reset), .write_strobe(cpu_write && cpu_a[
 wire [69:0] button_map;
 wire [7:0] pad_cols;
 wire [2:0] pad_mods;
-wire panel_open, fx_page, shift_pending, ctrl_pending, key_valid, armed, dock_keyboard;
-wire [5:0] selection;
-wire [6:0] key_ascii;
+wire panel_open, shift_line, ctrl_line, rus_line, shift_latch, dock_keyboard;
+wire [6:0] selection;
+wire [63:0] pulled;
 pocket_remap remap(.preset(preset), .keys_on(keys_on), .escape(escape), .map(button_map));
-pocket_keyboard keyboard(.clk(clk), .reset_n(apf_reset_n), .enable(assets_valid && memory_ready), .pad(pad),
+pocket_keyboard keyboard(.clk(clk), .reset_n(apf_reset_n), .enable(assets_valid && memory_ready),
+    .clear_latch(warm_reset || cold_boot), .pad(pad),
     .rows(kbd_rows), .map(button_map), .russian_mode(rus_mode), .columns(pad_cols), .modifiers(pad_mods),
-    .panel_open(panel_open), .fx_page(fx_page), .selection(selection), .shift_pending(shift_pending),
-    .ctrl_pending(ctrl_pending), .key_valid(key_valid), .key_ascii(key_ascii), .armed(armed),
-    .dock_keyboard(dock_keyboard));
+    .panel_open(panel_open), .selection(selection), .pulled(pulled), .shift_line(shift_line),
+    .ctrl_line(ctrl_line), .rus_line(rus_line), .shift_latch(shift_latch), .dock_keyboard(dock_keyboard));
 // the second matrix source, the Dock USB keyboard, is reserved (spec 10): no key pressed
 wire [7:0] hid_cols = 8'hFF;
 wire [2:0] hid_mods = 3'b111;
 assign kbd_cols = pad_cols & hid_cols;
 assign kbd_shift = pad_mods & hid_mods;
-assign key_status = {15'd0, armed, key_valid, panel_open, selection, key_ascii, 1'b0};
-assign mode_status = {27'd0, dock_keyboard, ctrl_pending, shift_pending, rus_mode, fx_page};
+assign key_status = {24'd0, panel_open, selection};
+assign mode_status = {26'd0, dock_keyboard, shift_latch, rus_line, ctrl_line, shift_line, rus_mode};
+// the K1 panel state bus (task-2 layout): {palette, pulled, rus_line, ct, sh, rus, selection, open},
+// held and crossed to the pixel clock in pocket_system (pocket_bus_cdc)
+assign panel_state = {palette, pulled, rus_line, ctrl_line, shift_line, rus_mode, selection, panel_open};
 
-//--------- the native video, the window, the on-screen keyboard --------------
+//--------- the native video and the window (the K1 panel is drawn in pocket_frame_video) ----------
 wire pix_ce, pix;
 wire [10:0] h_cnt, v_cnt;
 rk86_video native_video(.clk(clk), .ce(ce), .line(line), .ichar(ochar), .vsp(vsp), .lten(lten), .rvv(rvv),
@@ -120,15 +125,8 @@ wire s_ce, s_de, s_dot, s_hs, s_vs, s_ls, s_fs, s_le, s_fe;
 rk86_video_stream stream(.pix_ce(pix_ce), .pix(pix), .hrtc(hrtc), .vrtc(vrtc), .h_cnt(h_cnt), .v_cnt(v_cnt),
     .ce(s_ce), .de(s_de), .dot(s_dot), .hs(s_hs), .vs(s_vs),
     .line_start(s_ls), .frame_start(s_fs), .line_end(s_le), .frame_end(s_fe));
-wire w_valid, w_data, w_start, w_end;
-wire [16:0] w_address;
 pocket_window window(.clk(clk), .s_ce(s_ce), .s_dot(s_dot), .s_frame_start(s_fs), .h_cnt(h_cnt), .v_cnt(v_cnt),
-    .valid(w_valid), .data(w_data), .start(w_start), .finish(w_end), .address(w_address));
-pocket_keyboard_overlay overlay(.clk(clk), .reset_n(apf_reset_n), .panel_open(panel_open), .fx_page(fx_page),
-    .russian_mode(rus_mode), .shift_pending(shift_pending), .ctrl_pending(ctrl_pending), .selection(selection),
-    .pixel_valid(w_valid), .pixel_data(w_data), .frame_start(w_start), .frame_end(w_end), .pixel_address(w_address),
-    .out_valid(pixel_valid), .out_data(pixel_data), .out_start(pixel_start), .out_end(pixel_end),
-    .out_address(pixel_address));
+    .valid(pixel_valid), .data(pixel_data), .start(pixel_start), .finish(pixel_end), .address(pixel_address));
 always @(posedge clk)
     if (s_ce && s_fs) native_frames <= native_frames + 32'd1;
 

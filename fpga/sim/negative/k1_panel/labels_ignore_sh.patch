@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_k1_panel.v b/fpga/rtl/pocket_k1_panel.v
+index eaad39f..afa094d 100644
+--- a/fpga/rtl/pocket_k1_panel.v
++++ b/fpga/rtl/pocket_k1_panel.v
+@@ -69,7 +69,7 @@ module pocket_k1_panel(
+     end
+ 
+     // stage 3: the colour
+-    wire [24:0] lab=k1_label(s2_id,rus,sh,ct);
++    wire [24:0] lab=k1_label(s2_id,rus,1'b0,ct);
+     wire [1:0] font=lab[24:23],n=lab[22:21];
+     wire [6:0] line=k1_line(s2_id);
+     wire lit=(!line[6] && pulled[line[5:0]]) || (line==7'd64 && sh) || (line==7'd65 && ct)

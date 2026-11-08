@@ -1,0 +1,12 @@
+diff --git a/fpga/rtl/pocket_bus_cdc.v b/fpga/rtl/pocket_bus_cdc.v
+--- a/fpga/rtl/pocket_bus_cdc.v
++++ b/fpga/rtl/pocket_bus_cdc.v
+@@ -33,7 +33,7 @@ always @(posedge dst_clk or negedge dst_reset_n)
+         dst_data <= {W{1'b0}}; ack_token <= 1'b0; req_sync <= 3'd0;
+     end else begin
+         req_sync <= {req_sync[1:0], req_token};
+-        if (req_sync[2] != ack_token) begin dst_data <= held; ack_token <= req_sync[2]; end
++        if (1'b1) begin dst_data <= held; ack_token <= req_sync[2]; end
+     end
+ endmodule
+ `default_nettype wire

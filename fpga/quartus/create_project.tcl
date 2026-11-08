@@ -34,7 +34,7 @@ close $prj
 # apf_constraints.sdc reads core/core_constraints.sdc relative to the project directory: place a copy in the build
 file mkdir [file join $build core]
 file copy -force [file join $fpga core core_constraints.sdc] [file join $build core core_constraints.sdc]
-foreach f {rtl/pocket_machine_cdc.sdc rtl/pocket_audio_cdc.sdc} {
+foreach f {rtl/pocket_machine_cdc.sdc rtl/pocket_audio_cdc.sdc rtl/pocket_bus_cdc.sdc} {
     set_global_assignment -name SDC_FILE [file join $fpga $f]
 }
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE OFF

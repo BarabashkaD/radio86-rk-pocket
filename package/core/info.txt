@@ -1,6 +1,8 @@
 Radio-86RK for Analogue Pocket, the machine of the Karabas core.
-* Open the on-screen keyboard: L. D-pad selects, A presses, B Enter (VK), X Backspace (ZB), Y Space.
-* Start switches the ABC/FX page; R holds RUS/LAT.
+* On-screen keyboard: the real 67 keys. L+R opens and closes it. Core Settings > Keyboard colours: Pink (v1.1), Grey (v1.4) or Mono.
+* Keyboard open: D-pad selects a key; B presses it (held while B is held); A Space, Y ZB (Backspace), X VK (Enter), Start AR2 (Esc); Select + D-pad the arrows.
+* L tap latches Shift (the next L tap releases it); L held is Ctrl; R is RUS/LAT. These work with the keyboard open or closed.
+* The prompt stays on the bottom row, under the keyboard. Press STR (clear screen) to bring it to the top, or close the keyboard with L+R.
 * Panel closed: the buttons follow Core Settings > Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y) and Escape (Select, Start or None).
 * Keys on D-pad: A Space, B VK, X ZB, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down VK, Up ZB, Left Y.
 * Escape: the chosen button (Select or Start) sends AR2, the other sends VK; None: both send VK.

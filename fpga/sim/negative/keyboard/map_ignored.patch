@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_keyboard.v b/fpga/rtl/pocket_keyboard.v
+index cf52fd8..af09bd5 100644
+--- a/fpga/rtl/pocket_keyboard.v
++++ b/fpga/rtl/pocket_keyboard.v
+@@ -72,7 +72,7 @@ wire select_held = buttons[14];
+ reg [69:0] new_lines;
+ integer i, j;
+ always @* begin
+-    if (!panel_open) new_lines = map;
++    if (!panel_open) new_lines = {10{NONE}};
+     else new_lines = {NONE, 7'd2, 7'd11, 7'd10, k1_line(selection), 7'd63,          // Select Start Y X B A
+                       select_held ? {7'd14, 7'd12, 7'd15, 7'd13} : {4{NONE}}};       // Right Left Down Up
+ end

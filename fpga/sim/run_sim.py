@@ -49,14 +49,19 @@ HEX = {  # name in the run directory: (source, size)
 TESTS = {
     'cart_ppi': dict(top='tb_cart_ppi', files=sim('unit/tb_cart_ppi.v') + rtl('pocket_cart_ppi.v')),
     'audio': dict(top='tb_native_audio', files=sim('unit/tb_native_audio.v') + rtl('pocket_audio.v')),
-    'overlay': dict(top='tb_native_keyboard_overlay', hex=['font.hex'],
-                    files=sim('unit/tb_native_keyboard_overlay.v') + rtl('pocket_keyboard_overlay.v')),
+    'bus_cdc': dict(top='tb_bus_cdc', files=sim('unit/tb_bus_cdc.v') + rtl('pocket_bus_cdc.v'),
+                    negatives=[('bus_cdc/copy_without_req', 'ERROR: copied a held value')]),
     'keyboard': dict(top='tb_pocket_keyboard', files=sim('unit/tb_pocket_keyboard.v') + rtl('pocket_remap.v', 'pocket_keyboard.v'),
-                     negatives=[('map_ignored', 'ERROR: matrix'), ('keys_on_ignored', 'ERROR: matrix'),
-                                ('escape_swapped', 'ERROR: matrix')]),
-    'frame_video': dict(top='tb_frame_video', files=sim('unit/tb_frame_video.v') + rtl('pocket_frame_video.v')),
-    'frame_colour': dict(top='tb_frame_colour', files=sim('unit/tb_frame_colour.v') + rtl('pocket_frame_video.v'),
+                     negatives=[('keyboard/map_ignored', 'ERROR: matrix'), ('keyboard/keys_on_ignored', 'ERROR: matrix'),
+                                ('keyboard/escape_swapped', 'ERROR: matrix'),
+                                ('keyboard/chord_leaks_rus', 'ERROR: chord: RUS'),
+                                ('keyboard/tap_sends_ctrl', 'ERROR: delayed Ctrl')]),
+    'frame_video': dict(top='tb_frame_video', files=sim('unit/tb_frame_video.v') + rtl('pocket_frame_video.v', 'pocket_k1_panel.v')),
+    'frame_colour': dict(top='tb_frame_colour', files=sim('unit/tb_frame_colour.v') + rtl('pocket_frame_video.v', 'pocket_k1_panel.v'),
                          negatives=[('colour_ignored', 'ERROR: colour ffffff, expected 00ff00')]),
+    'k1_panel': dict(top='tb_k1_panel', inputs=lambda out: k1_panel_inputs(out),
+                     files=sim('unit/tb_k1_panel.v') + rtl('pocket_frame_video.v', 'pocket_k1_panel.v'),
+                     negatives=[('k1_panel/labels_ignore_sh', 'ERROR: pixel')]),
     'assets': dict(top='tb_assets', hex=['monitor.hex', 'font.hex', 'cartridge.hex'],
                    files=sim('unit/tb_assets.v') + rtl('pocket_asset_store.v', 'pocket_boot_assets.v'),
                    negatives=[('rom_disk_required', 'missing ROM disk must be legal')]),
@@ -70,7 +75,7 @@ TESTS = {
                    negatives=[('markers_from_stream', 'ERROR: markers')]),
     'interact': dict(top='tb_pocket_interact', files=sim('unit/tb_pocket_interact.v') + rtl('pocket_interact.v'),
                      negatives=[('keys_range', 'ERROR: read 0000010c'), ('keys_on_range', 'ERROR: read 00000110'),
-                                ('escape_range', 'ERROR: read 00000114')]),
+                                ('escape_range', 'ERROR: read 00000114'), ('palette_range', 'ERROR: read 00000118')]),
     'watchdog': dict(top='tb_pll_watchdog', files=sim('unit/tb_pll_watchdog.v') + rtl('pocket_pll_watchdog.v'),
                      negatives=[('watchdog_never', 'ERROR: watchdog pulse count')]),
 }
@@ -78,7 +83,7 @@ TESTS = {
 
 SYSTEM_RTL = rtl('pocket_asset_store.v', 'pocket_boot_assets.v', 'pocket_interact.v', 'pocket_memory.v',
                  'pocket_cold_clear.v', 'pocket_window.v', 'pocket_remap.v', 'pocket_keyboard.v',
-                 'pocket_keyboard_overlay.v', 'pocket_cart_ppi.v', 'pocket_frame_video.v', 'pocket_audio.v',
+                 'pocket_bus_cdc.v', 'pocket_cart_ppi.v', 'pocket_frame_video.v', 'pocket_k1_panel.v', 'pocket_audio.v',
                  'pocket_pll_watchdog.v', 'radio86rk_pocket.v', 'pocket_system.v')
 
 
@@ -99,6 +104,7 @@ TESTS.update({
     'xonix': system('xonix'),
     'dpddt': system('dpddt'),
     'tetris': system('tetris'),
+    'k1': system('k1'),  # writes k1_<n>.hex and k1.log: python -B scripts/k1/check_frames.py build/sim/k1
 })
 
 
@@ -111,6 +117,35 @@ def write_hex(name, out):
         raise SystemExit('ERROR: %s is %d bytes, expected %d' % (path, len(data), size))
     with open(os.path.join(out, name), 'w', encoding='ascii', newline='\n') as f:
         f.write(''.join('%02x\n' % b for b in data))
+
+
+# K1 panel states of tb_k1_panel: (render_panel state, diagnostic error). Lines: G 39, V 54 (Ж in RUS);
+# ids: G 28, ВК 46, СС 62, АР2 0, F2 5. green is the Text colour input.
+K1_PANEL_STATES = [
+    (dict(open=1, selected=28, palette=0), 0),                                         # a: LAT
+    (dict(open=1, rus=1, sh=1, selected=46, pulled=[54], palette=1), 0),               # b: RUS + Shift, v1.4
+    (dict(open=1, rus=1, sh=1, ct=1, rus_line=1, selected=62, palette=2, green=1), 0), # c: mono green
+    (dict(open=0, rus=1, sh=1, selected=5, pulled=[39], palette=1), 0),                # d: closed
+    (dict(open=1, ct=1, selected=0, pulled=[12, 63], palette=1), 1),                   # e: error frame
+    (dict(open=1, sh=1, selected=28, pulled=[39], palette=0), 0),                      # f: selected and lit
+    (dict(open=1, ct=1, selected=28, pulled=[39], palette=2), 0),                      # g: mono, selected and lit
+]
+
+
+def k1_panel_inputs(out):
+    """tb_k1_panel inputs: the background bits, the states ({error, green, bus}) and the frames
+    the model expects (scripts/k1/render.py)."""
+    sys.path.insert(0, os.path.join(ROOT, 'scripts', 'k1'))
+    import layout
+    import render
+    frame = layout.read_frame(os.path.join(ROOT, 'fpga', 'sim', 'golden', 'rom-disk-menu.hex'))
+    with open(os.path.join(out, 'k1_panel_bg.hex'), 'w', encoding='ascii', newline='\n') as f:
+        f.write(''.join('%d\n' % b for b in frame))
+    with open(os.path.join(out, 'k1_panel_states.hex'), 'w', encoding='ascii', newline='\n') as f:
+        for state, error in K1_PANEL_STATES:
+            f.write('%020x\n' % (error << 79 | int(bool(state.get('green'))) << 78 | render.state_bus(state)))
+    for n, (state, error) in enumerate(K1_PANEL_STATES):
+        render.write_rgb_hex(os.path.join(out, 'k1_panel_exp_%d.hex' % n), render.picture(state, frame, error))
 
 
 def run(name, test, iverilog, vvp, env, fault=None):
@@ -134,6 +169,8 @@ def run(name, test, iverilog, vvp, env, fault=None):
             return False, 'ERROR: fault %s: %s' % (fault, e)
     for h in test.get('hex', []):
         write_hex(h, out)
+    if test.get('inputs'):
+        test['inputs'](out)
     exe = os.path.join(out, name + '.vvp')
     cmd = [iverilog, '-g2012', '-I', os.path.join(ROOT, 'fpga', 'rtl'), '-I', os.path.join(ROOT, 'fpga', 'sim', 'system'),
            '-s', test['top'], '-o', exe] + files

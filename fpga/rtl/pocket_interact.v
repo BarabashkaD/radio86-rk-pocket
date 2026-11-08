@@ -3,7 +3,8 @@
 // initial values are the defaults of package/core/interact.json.
 //   0x100 action: 1 Reset, 2 Cold boot (one clk each); reads 0
 //   0x104 Sound (bit 0)   0x108 Text colour (bit 0: green)   0x10C Keys (0..3)   0x110 Keys on (0..1)
-//   0x114 Escape (0..2)   0x118 ... 0x144 reserved (read 0). Out-of-range writes are ignored.
+//   0x114 Escape (0..2)   0x118 Keyboard colours (0..2)   0x11C ... 0x144 reserved (read 0).
+//   Out-of-range writes are ignored.
 `default_nettype none
 module pocket_interact(
     input  wire        clk,
@@ -18,7 +19,8 @@ module pocket_interact(
     output reg         green = 1'b0,
     output reg   [1:0] preset = 2'd0,
     output reg         keys_on = 1'b0,
-    output reg   [1:0] escape = 2'd0
+    output reg   [1:0] escape = 2'd0,
+    output reg   [1:0] palette = 2'd0     // K1 panel: 0 Pink (v1.1), 1 Grey (v1.4), 2 Mono
 );
 wire [7:0] offset = bridge_addr[7:0];
 assign selected = bridge_addr[31:8] == 24'h000001 && offset[1:0] == 2'b00 && offset <= 8'h44;
@@ -29,6 +31,7 @@ always @* begin
     else if (offset == 8'h0C) rd_data = {30'd0, preset};
     else if (offset == 8'h10) rd_data = {31'd0, keys_on};
     else if (offset == 8'h14) rd_data = {30'd0, escape};
+    else if (offset == 8'h18) rd_data = {30'd0, palette};
 end
 always @(posedge clk) begin
     warm_reset <= 1'b0;
@@ -45,6 +48,8 @@ always @(posedge clk) begin
             if (bridge_wr_data <= 32'd1) keys_on <= bridge_wr_data[0];
         end else if (offset == 8'h14) begin
             if (bridge_wr_data <= 32'd2) escape <= bridge_wr_data[1:0];
+        end else if (offset == 8'h18) begin
+            if (bridge_wr_data <= 32'd2) palette <= bridge_wr_data[1:0];
         end
     end
 end

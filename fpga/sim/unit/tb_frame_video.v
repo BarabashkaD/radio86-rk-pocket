@@ -10,7 +10,7 @@ module tb_frame_video;
     wire de,hs,vs;
     wire [31:0] completed,dropped,displayed;
     pocket_frame_video dut(.source_clk(source_clk),.source_reset_n(source_reset_n),.pixel_clk(pixel_clk),.pixel_reset_n(pixel_reset_n),
-        .pixel_valid(valid),.pixel_data(data),.frame_start(start),.frame_end(finish),.pixel_address(address),.diagnostic_error(1'b0),.green(1'b0),
+        .pixel_valid(valid),.pixel_data(data),.frame_start(start),.frame_end(finish),.pixel_address(address),.diagnostic_error(1'b0),.green(1'b0),.panel_state(78'd0),
         .rgb(rgb),.de(de),.hs(hs),.vs(vs),.skip(),.audio_dac(),.audio_lrck(),
         .frames_completed(completed),.frames_dropped(dropped),.frames_displayed(displayed));
     integer frame,pixel,checked=0,pixels=0;
