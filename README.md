@@ -1,85 +1,92 @@
 # Radio-86RK for Analogue Pocket
 
-An openFPGA core of the Radio-86RK home computer for the Analogue Pocket. It is built on the machine of the [Karabas core](https://github.com/andykarpov/karabas-go-core-rk86) (`cores/karabas-go-core-rk86`, a submodule), Dmitry Tselikov's FPGA replica of the Radio-86RK.
+An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https://www.analogue.co/pocket).
 
-Status: in development, version 0.6.0, not released. Version 0.6.0 with the new on-screen keyboard runs on a Pocket (OS 2.7).
+<p>
+  <img src="images/pocket_hello.jpeg" alt="The Radio-86RK monitor prompt on an Analogue Pocket" width="250">
+  <img src="images/pocket_onscreen_keyboard.jpeg" alt="The on-screen keyboard on an Analogue Pocket" width="250">
+  <img src="images/pocket_tetris.jpeg" alt="Tetris from the ROM disk on an Analogue Pocket" width="250">
+</p>
 
-- FPGA implementation: [fpga/README.md](fpga/README.md) (bridge map, data slots, build and tests)
-- Licences of all parts: [LICENSES.md](LICENSES.md)
+The core is built on these works:
 
-Clone with `git clone --recursive`, or run `git submodule update --init --recursive` in an existing clone.
+- **The FPGA replica of the Radio-86RK** by Dmitry Tselikov (2010-2011): the CPU (KR580VM80A), DMA, CRT controller, PPI and the video. The [FPGA page of his site](http://bashkiria-2m.narod.ru/index/fpga/0-12) has the original project for the Altera DE1.
+- **The [Karabas Go core](https://github.com/andykarpov/karabas-go-core-rk86)**, maintained by Andy Karpov: the replica ported to the Aeon Lite by Dmitriy Schapotschkin, to the ZX UNO by Andy Karpov and to the Karabas Go by Oleh Chastukhin. This core uses its machine, its monitor ROM and its font. The board-neutral machine (`rk86_machine`) comes from the modernization branch of the fork [BarabashkaD/karabas-go-core-rk86](https://github.com/BarabashkaD/karabas-go-core-rk86/tree/c7d7a9288f1fb14e515572e972af3dec34cc5b53), proposed upstream; it is the submodule `cores/karabas-go-core-rk86`.
+- **The [Radio-86RK](https://github.com/skiselev/radio-86rk)** by Sergey Kiselev, a modern re-make of the Radio-86RK: the source of the ROM disk (`Software/rom_disk.bin`) and of the 67-key keyboard design and its colours (v1.1, v1.4).
+
+## Status
+
+The latest version, [0.6.1](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.6.1), is the first release; it carries the on-screen keyboard K1 of 0.6.0: the full 67-key layout of the real Radio-86RK keyboard. It runs on a Pocket (OS 2.7). Changes: [CHANGELOG.md](CHANGELOG.md).
+
+## Features
+
+- The Radio-86RK machine of the Karabas core: CPU, DMA, CRT controller, PPI, the monitor and the font. The CPU runs at 1.43 MHz, as on the Karabas boards; the original ran at about 1.78 MHz ([How the clocks work](fpga/README.md#how-the-clocks-work)).
+- The ROM disk with its menu of programs (included in the package).
+- The on-screen keyboard (L+R): the 67 real keys, LAT and RUS layouts, Shift and Ctrl, three colour palettes.
+- Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or on A B X Y.
+- Beeper sound at 48 kHz, text colour, Reset (keeps memory) and Cold boot in Core Settings.
+- The picture at 60 Hz through a frame buffer. If the clock of the screen and sound is disturbed (its PLL loses lock), the program keeps running (checked in simulation).
+- Not yet: savestates, sleep, tape images, the Dock USB keyboard.
 
 ## Install
 
-Unzip the package `BarabashkaD.Radio86RK_<version>_<date>.zip` onto the root of the Pocket's SD card. It adds `Cores/BarabashkaD.Radio86RK/`, `Assets/radio86rk/BarabashkaD.Radio86RK/` and `Platforms/radio86rk.json`. The core appears in the Pocket menu as "Radio-86RK". The monitor and the font are required in the Assets folder; the ROM disk is optional (without it, the window A000-BFFF reads FF).
+1. Download `BarabashkaD.Radio86RK_<version>_<date>.zip` from the [latest release](https://github.com/BarabashkaD/radio86-rk-pocket/releases).
+2. Upgrading from 0.5.x: first delete `Settings/BarabashkaD.Radio86RK/` on the SD card (the Core Settings changed).
+3. Unzip it onto the root of the Pocket's SD card. It adds `Cores/BarabashkaD.Radio86RK/`, `Assets/radio86rk/BarabashkaD.Radio86RK/`, `Platforms/radio86rk.json` and `Platforms/_images/radio86rk.bin`. The core appears in the Pocket menu as "Radio-86RK" (category Computer).
 
-Build the package with `pwsh -File scripts/build.ps1`, `python -B scripts/fetch_assets.py` and `python -B scripts/package.py --version <version> --date <YYYY-MM-DD>`. Details: [fpga/README.md](fpga/README.md). The package is not released yet.
+The monitor (`monitor.bin`) and the font (`font.bin`) in the Assets folder are required. The zip also includes the ROM disk (`romdisk.bin`, GPL-3.0, see [LICENSES.md](LICENSES.md)). It is optional: without it, the window A000-BFFF reads FF. Only this exact file is accepted (it is checked by its CRC): another ROM disk image stops the core with a red error screen.
+
+## Building from source
+
+Clone with `git clone --recursive`, or run `git submodule update --init --recursive` in an existing clone. Then build the package with `pwsh -File scripts/build.ps1`, `python -B scripts/fetch_assets.py` and `python -B scripts/package.py --version <version> --date <YYYY-MM-DD>`.
+
+- FPGA implementation: [fpga/README.md](fpga/README.md) (architecture, clocks, bridge map, data slots, build and tests).
+- Licences of all parts: [LICENSES.md](LICENSES.md).
+
+## Running programs from the ROM disk
+
+The ROM disk holds BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER, DP/DDT, and the games Xonix, Othello and Tetris. The monitor copies its loader into memory and starts it:
+
+1. Start the core. The monitor shows `РАДИО-86РК` and the prompt `-->`.
+2. Open the on-screen keyboard with L+R. Select each key with the D-pad and press it with B.
+3. Type `R0,1FF,0` and press CR (Enter; the X button does the same). The monitor copies the first 512 bytes of the ROM disk, the loader, to address 0000.
+4. Type `G0` and press CR. The loader starts and shows its menu.
+5. Press the digit of a program, for example `6` for Tetris. Close the keyboard with L+R to see the whole screen.
+
+![The ROM disk menu after R0,1FF,0 and G0](images/rom-disk-menu.png)
+
+The picture is the reference frame of the `menu` test of the system simulation (the core's frame matches it), at 2x.
+
+- Tetris first asks for your level (0-7): type a digit. It is played with the digits 7 (left), 8 (rotate), 9 (right), 6 (faster) and Space (drop); S pauses. With Core Settings > Keys = Digits 7-8-9-6 the D-pad sends them (Left 7, Up 8, Right 9, Down 6) and A sends Space.
+- Some programs load over the loader, as on the real machine: Xonix runs at 0000, and DP/DDT overwrites it too. To get back to the menu, use Core Settings > Reset, then type `R0,1FF,0` and `G0` again.
+- Without `romdisk.bin`, the window A000-BFFF reads FF and `G0` does not show the menu.
 
 ## On-screen keyboard
 
 The keyboard opens with L+R at the bottom of the screen. It has the 67 keys of the real Radio-86RK in their real places, and each key shows what it types now: Latin letters in LAT mode, Cyrillic in RUS mode (R switches), the second symbols while Shift is latched, the control names while Ctrl (L) is held. The pictures are frames of the core's video output in the system simulation, at 2x.
 
-English (LAT) layout, the mode after start; the selection on G:
+English (LAT) layout, the mode after start; the selection on G. The function keys have English names here: CR Enter, BS Backspace, ESC, CLS clear screen, LF line feed, CTL Ctrl, SHF Shift. This README uses these names.
 
 ![The on-screen keyboard in LAT mode](images/keyboard-lat.png)
 
-Russian (RUS) layout, after R; the key names are in Russian too (ВК Enter, ЗБ Backspace, АР2 Esc, СТР clear screen, ПС line feed, УС Ctrl, СС Shift):
+Russian (RUS) layout, after R; the key names are in Russian too: ВК (CR), ЗБ (BS), АР2 (ESC), СТР (CLS), ПС (LF), УС (CTL), СС (SHF):
 
 ![The on-screen keyboard in RUS mode](images/keyboard-rus.png)
+
+Core Settings > Keyboard colours: Pink (the v1.1 board), Grey (the v1.4 board: a blue board with grey keys) or Mono (follows Text colour).
 
 ## Controls
 
 From the core's `info.txt`:
 
 - On-screen keyboard: the real 67 keys, one label per key from the active alphabet. L+R opens and closes it. Core Settings > Keyboard colours: Pink (v1.1), Grey (v1.4) or Mono (follows Text colour).
-- With the keyboard open: D-pad selects a key; B presses it (held while B is held); A Space, Y ZB (Backspace), X VK (Enter), Start AR2 (Esc); Select + D-pad the arrows.
+- With the keyboard open: D-pad selects a key; B presses it (held while B is held); A Space, Y BS (Backspace), X CR (Enter), Start ESC; Select + D-pad the arrows.
 - L tap latches Shift (the next L tap releases it); L held is Ctrl; R is RUS/LAT. These work with the keyboard open or closed.
-- The prompt stays on the bottom row, under the keyboard. Press STR (clear screen) to bring it to the top, or close the keyboard with L+R.
-- Panel closed: the buttons follow Core Settings > Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y) and Escape (Select, Start or None).
-- Keys on D-pad: A Space, B VK, X ZB, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down VK, Up ZB, Left Y.
-- Escape: the chosen button sends AR2 (Esc), the other sends VK; None: both send VK.
+- The prompt stays on the bottom row, under the keyboard. Press CLS (clear screen) to bring it to the top, or close the keyboard with L+R.
+- Keyboard closed: the buttons follow Core Settings > Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y) and Escape (Select, Start or None).
+- Keys on D-pad: A Space, B CR, X BS, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down CR, Up BS, Left Y.
+- Escape: the chosen button sends ESC, the other sends CR; None: both send CR.
 - Core Settings: Reset keeps memory, Cold boot clears it; Sound; Text colour.
-- ROM disk: type `R0,1FF,0` then Enter, then `G0` then Enter for its menu.
-- ROM disk item 3 (DP/DDT) overwrites the menu loader, as on the real machine; use Reset.
+- ROM disk: type `R0,1FF,0` then CR, then `G0` then CR for its menu.
+- ROM disk items 3 (DP/DDT) and 4 (Xonix) overwrite the menu loader, as on the real machine; use Reset.
 - No Memories (savestates) and no sleep.
-
-## Measured Pocket limit: interact.json
-
-On Pocket OS 2.7 the first version of the core did not start: the Pocket stopped right after opening interact.json (the log shows Opening /Cores/BarabashkaD.Radio86RK/interact.json, then the error; a working core goes on to `video.json`). Variants of the file, tried on the hardware:
-
-| file | items | list options in total | result |
-|---|---|---|---|
-| empty | 0 | 0 | loads |
-| 5 basic items | 5 | 7 | loads |
-| 5 basic + 2 Map lists of 16 | 7 | 39 | loads |
-| 15 items, Map lists cut to 2 options | 15 | 27 | loads |
-| a working core (Vector06C) | 12 | 66 | loads |
-| 15 items, Map lists of 9 options | 15 | 97 | fails |
-| the first shipped file | 15 | 167 | fails |
-
-The documented limits (16 items, 16 options per list, 23-character names) were all met, so the Pocket has an undocumented limit on the total size of the lists, somewhere between 66 and 97 options. Core Settings of this core are therefore kept small (7 items, 11 list options in total; scripts/tests/test_package.py checks at most 20 options).
-
-## How the clocks work
-
-```text
-Pocket (APF) clk_74a = 74.25 MHz
- |
- +--> clock enable: 160 of every 297 ticks ----> 40 MHz timebase (on average exactly 40.000 MHz)
- |     the Radio-86RK machine, the memory, the        |
- |     keyboard, the ROM disk, the bridge             +--> CPU: one step every 28  = 40 / 28 = about 1.43 MHz
- |                                                    +--> screen: one dot every 3 = 13.33 MHz
- |                                                    +--> a frame every 959 760   = 41.7 frames per second
- |                                                                  |
- |                                                              frame buffer (two banks)
- |                                                                  |
- +--> PLL ---> clk_core_12288 = 12.288 MHz ------------> Pocket screen: 60 Hz, 408 x 300 shown
-                                         ------------> sound: 48 kHz I2S (the beeper)
-```
-
-- **The machine runs on `clk_74a`,** the 74.25 MHz clock the Pocket gives every core, not on a PLL clock. It advances only when a clock enable is high: on 160 of every 297 ticks. On average that is exactly 74.25 × 160 / 297 = **40 MHz**, the master timebase of the Karabas core; on the Karabas boards it is a real 40 MHz clock with the enable always on.
-  - Programs run at exactly the Karabas core's speed, with no drift.
-  - Single steps are 13.5 or 26.9 ns apart instead of an even 25 ns. Nothing outside sees that jitter: the picture is re-timed by the frame buffer, and the sound is sampled at 48 kHz.
-- **From the 40 MHz timebase** the core derives the CPU, the screen dots and the frames (the Karabas core's `docs/integration.md`, section 2). The CPU takes a step every 28 timebase steps: **40 / 28 ≈ 1.43 MHz**.
-  - The original Radio-86RK's CPU ran at about **1.78 MHz**, so the replica's CPU is about 20% slower. Why, how to reach the original speed, and a configurable speed with turbo modes are planned follow-up tasks.
-- **The PLL is used only for the Pocket's screen and sound.** It makes 12.288 MHz, which APF requires for the 60 Hz video output and the 48 kHz audio. A frame buffer with two banks sits between the machine's 41.7 Hz frames and the 60 Hz screen.
-- **If the PLL loses lock** (rare: a power transient, ESD), only the picture and sound stop. The machine, its memory and the running program go on. A watchdog restarts the PLL if it does not lock again by itself within 28 ms, and the picture comes back with the program still running.
