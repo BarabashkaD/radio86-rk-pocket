@@ -4,10 +4,11 @@
 Usage: python -B scripts/package.py --version 0.5.0 --date YYYY-MM-DD [--build build/quartus]
        [--output build/package]
 Checks the definitions against the openFPGA limits, bit-reverses the RBF (round trip checked),
-checks every shipped asset against package/assets.json, draws the icon and platform image, and
-writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip.
+checks every shipped asset against package/assets.json, draws the icon and platform image,
+writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip, then checks the zip as the openFPGA library's updater reads it.
 """
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -60,7 +61,23 @@ def graphic(width, height, text, scale):
     return encoded
 
 
-MAX_LIST_OPTIONS = 20  # far below the measured failure at 97 (README, "Measured Pocket limit")
+# Pocket OS 2.7 did not start a core whose interact.json lists held 97 options in total, and
+# started one with 66: an undocumented limit between the two, measured on the hardware
+# (fpga/README.md, "Core Settings size limit"). Keep far below it.
+MAX_LIST_OPTIONS = 20
+
+
+def is_iso_date(s):
+    """A real calendar date as YYYY-MM-DD (the library's post generator parses it without a rescue)."""
+    try:
+        return (isinstance(s, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', s) is not None
+                and datetime.date.fromisoformat(s) is not None)
+    except (ValueError, TypeError):
+        return False
+
+
+def is_string_list(v):
+    return isinstance(v, list) and bool(v) and all(isinstance(p, str) for p in v)
 
 
 def check_core(core):
@@ -68,9 +85,11 @@ def check_core(core):
     for key, limit in (('shortname', 31), ('description', 63), ('author', 31), ('url', 63), ('version', 31)):
         if len(m[key]) > limit:
             errors.append('core.json %s longer than %d' % (key, limit))
-    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', m['date_release']):
+    if not is_iso_date(m['date_release']):
         errors.append('core.json date_release is not YYYY-MM-DD')
-    if len(m['platform_ids']) > 4 or any(not re.fullmatch(r'[a-z0-9_]{1,15}', p) or p.startswith('_') for p in m['platform_ids']):
+    if not is_string_list(m['platform_ids']):
+        errors.append('core.json platform_ids must be a non-empty list of strings')
+    elif len(m['platform_ids']) > 4 or any(not re.fullmatch(r'[a-z0-9_]{1,15}', p) or p.startswith('_') for p in m['platform_ids']):
         errors.append('core.json platform_ids')
     if m['author'] + '.' + m['shortname'] != CORE_ID:
         errors.append('core.json author.shortname is not %s' % CORE_ID)
@@ -78,7 +97,7 @@ def check_core(core):
 
 
 def check_interact(variables):
-    """The measured Pocket limit (README): Pocket OS 2.7 fails on 97 list options in total, loads 66."""
+    """The measured Pocket limit (fpga/README.md, "Core Settings size limit"): 97 list options in total fail, 66 load."""
     errors = []
     if len(variables) > 16:
         errors.append('interact.json: more than 16 items')
@@ -88,6 +107,22 @@ def check_interact(variables):
     if len(set(ids)) != len(ids) or any(i in (0, 1, 2) for i in ids):
         errors.append('interact.json: ids must be unique and not 0-2 (the data slots)')
     return errors
+
+
+# updaters.json is read by the openFPGA library and the updater tools (pupdate, Pocket Sync), not
+# by the Pocket. Only declare_ai is allowed: "license" would make the updaters ask the user for a
+# licence file, "previous" is for a core whose id changed.
+UPDATERS_KEYS = ('declare_ai',)
+
+
+def check_updaters(updaters):
+    if not isinstance(updaters, dict) or set(updaters) - set(UPDATERS_KEYS):
+        return ['updaters.json: only %s allowed' % ', '.join(UPDATERS_KEYS)]
+    ai = updaters.get('declare_ai')
+    if not isinstance(ai, list) or not ai or any(not isinstance(t, str) or not t.strip() for t in ai):
+        return ['updaters.json: declare_ai must be a non-empty list of tool names']
+    return []
+
 
 def check_definitions(package_dir):
     load = lambda *p: json.load(open(os.path.join(package_dir, *p), encoding='utf-8'))
@@ -108,6 +143,70 @@ def check_definitions(package_dir):
     plat = load('platform', PLATFORM + '.json')['platform']
     if any(len(plat[k]) > 31 for k in ('category', 'name', 'manufacturer')):
         errors.append('platform json field longer than 31')
+    errors += check_updaters(load('core', 'updaters.json'))
+    return errors
+
+
+# What the openFPGA library's updater reads from a release zip (openfpga-library/analogue-pocket,
+# .github/workflows/updater/lib/analogue/*.rb, read 2026-11-08). The schema checks mirror the
+# updater: a failure means the release is silently not listed, the author gets no notice. The
+# icon/image size, the single core folder, the https url and the updaters key rule are stricter
+# than the updater on purpose (so the icon and the platform image render, and the updaters do
+# not ask for a licence file).
+LIBRARY_ICON_SIZE = 36 * 36 * 2
+LIBRARY_IMAGE_SIZE = 521 * 165 * 2
+
+
+def check_library_zip(zip_path):
+    with zipfile.ZipFile(zip_path) as z:
+        names = set(z.namelist())
+        load = lambda name: json.loads(z.read(name).decode('utf-8'))
+        cores = sorted({n.split('/')[1] for n in names if n.startswith('Cores/') and n.count('/') >= 2})
+        if cores != [CORE_ID]:
+            return ['library: Cores/ must hold only %s, found %s' % (CORE_ID, cores)]
+        base = 'Cores/%s/' % CORE_ID
+        errors = ['library: %s missing' % (base + n) for n in ('core.json', 'data.json', 'icon.bin')
+                  if base + n not in names]
+        if errors:
+            return errors
+        core = load(base + 'core.json').get('core', {})
+        m, fw = core.get('metadata', {}), core.get('framework', {})
+        for key in ('platform_ids', 'shortname', 'description', 'author', 'url', 'version', 'date_release'):
+            if key not in m:
+                errors.append('library: core.json metadata.%s missing' % key)
+        if not str(m.get('url', '')).startswith('https://'):
+            errors.append('library: core.json url is not an https URI')
+        if not is_iso_date(m.get('date_release')):
+            errors.append('library: core.json date_release is not a date')
+        if not is_string_list(m.get('platform_ids')):
+            errors.append('library: core.json platform_ids must be a non-empty list of strings')
+        if '%s.%s' % (m.get('author'), m.get('shortname')) != CORE_ID:
+            errors.append('library: core.json author.shortname is not %s' % CORE_ID)
+        dock, hardware = fw.get('dock', {}), fw.get('hardware', {})
+        if not (isinstance(fw.get('version_required'), str) and isinstance(fw.get('sleep_supported'), bool)
+                and isinstance(dock.get('supported'), bool) and isinstance(dock.get('analog_output'), bool)
+                and isinstance(hardware.get('link_port'), bool)):
+            errors.append('library: core.json framework (version_required, sleep_supported, dock, link_port)')
+        for slot in load(base + 'data.json')['data']['data_slots']:
+            parameters = slot.get('parameters')
+            if not (isinstance(slot.get('name'), str) and isinstance(slot.get('required'), bool)
+                    and isinstance(parameters, (int, str)) and not isinstance(parameters, bool)):
+                errors.append('library: data.json slot %s (name, required, parameters)' % slot.get('name'))
+        if base + 'updaters.json' in names:
+            errors += ['library: ' + e for e in check_updaters(load(base + 'updaters.json'))]
+        if len(z.read(base + 'icon.bin')) != LIBRARY_ICON_SIZE:
+            errors.append('library: icon.bin is not 36 x 36')
+        for pid in (m['platform_ids'] if is_string_list(m.get('platform_ids')) else []):
+            plat, image = 'Platforms/%s.json' % pid, 'Platforms/_images/%s.bin' % pid
+            if plat not in names:
+                errors.append('library: %s missing' % plat)
+                continue
+            p = load(plat).get('platform', {})
+            if not (isinstance(p.get('name'), str) and isinstance(p.get('manufacturer'), str)
+                    and isinstance(p.get('year'), int) and not isinstance(p.get('year'), bool)):
+                errors.append('library: %s needs name, manufacturer and an integer year' % plat)
+            if image not in names or len(z.read(image)) != LIBRARY_IMAGE_SIZE:
+                errors.append('library: %s missing or not 521 x 165' % image)
     return errors
 
 
@@ -146,7 +245,7 @@ def main():
     asset_dir = os.path.join(sd, 'Assets', PLATFORM, CORE_ID)
     for d in (core_dir, asset_dir, os.path.join(sd, 'Platforms', '_images')):
         os.makedirs(d)
-    for name in ('data', 'video', 'audio', 'input', 'interact', 'variants'):
+    for name in ('data', 'video', 'audio', 'input', 'interact', 'variants', 'updaters'):
         shutil.copyfile(os.path.join(pkg, 'core', name + '.json'), os.path.join(core_dir, name + '.json'))
     core = json.load(open(os.path.join(pkg, 'core', 'core.json'), encoding='utf-8'))
     core['core']['metadata'].update(version=a.version, date_release=a.date)
@@ -176,15 +275,28 @@ def main():
     with open(os.path.join(core_dir, 'APF-NOTICE.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(apf[:apf.index('module apf_top')])
     zip_path = os.path.join(a.output, '%s_%s_%s.zip' % (CORE_ID, a.version, a.date))
+    outside = None
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
         for base, _, files in os.walk(sd):
             for name in sorted(files):
                 full = os.path.join(base, name)
                 rel = os.path.relpath(full, sd).replace(os.sep, '/')
                 if rel.split('/')[0] not in ('Cores', 'Assets', 'Platforms'):
-                    print('ERROR: %s outside Cores/Assets/Platforms' % rel)
-                    return 1
+                    outside = rel
+                    break
                 z.write(full, rel)
+            if outside:
+                break
+    if outside:
+        print('ERROR: %s outside Cores/Assets/Platforms' % outside)
+        os.remove(zip_path)
+        return 1
+    errors = check_library_zip(zip_path)
+    if errors:
+        for e in errors:
+            print('ERROR: %s' % e)
+        os.remove(zip_path)
+        return 1
     print('PASS package: %s (%s)' % (os.path.relpath(zip_path, ROOT), hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()))
     return 0
 

@@ -11,6 +11,6 @@ One row per part. Nothing here is legal advice; open items are marked.
 | Monitor `monitor.bin` | core `src/roms/BIOS.BIN` | in the core repository (modified BSD) | Original Radio-86RK monitor. |
 | Font `font.bin` | core `src/roms/FONT.BIN` | in the core repository (modified BSD) | Also built into the bitstream for the on-screen keyboard: `fpga/rtl/native_font.vh`. |
 | Font in the bitstream | `fpga/rtl/native_font.vh` | as the font above | The keyboard panel (`pocket_k1_panel.v`) draws with this table, not with the slot-1 font. |
-| `declare_ai` in `updaters.json` | not yet written | openFPGA inventory rule | Open, to be decided before 1.0.0. There is no `updaters.json` and no inventory entry in version 1. |
+| `declare_ai` in `updaters.json` | `package/core/updaters.json`, in the package as `Cores/BarabashkaD.Radio86RK/updaters.json` | openFPGA library field | `["Claude"]`: the core is developed with Claude (Anthropic) as a coding agent. Read by the openFPGA library and the updater tools, not by the Pocket. |
 
-The SD package contains `LICENSE.txt` (ours), `LICENSE-karabas-core.txt` and `LICENSE-romdisk.txt` in `Cores/BarabashkaD.Radio86RK/`.
+The SD package contains `LICENSE.txt` (ours), `LICENSE-karabas-core.txt`, `LICENSE-romdisk.txt` and `APF-NOTICE.txt` (the notice of the APF template) in `Cores/BarabashkaD.Radio86RK/`.

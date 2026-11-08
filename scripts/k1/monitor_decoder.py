@@ -13,7 +13,8 @@ import functools
 import os
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-ROM = os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src', 'roms', 'BIOS.BIN')
+CORE_SRC = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
+ROM = os.path.join(CORE_SRC, 'roms', 'BIOS.BIN')
 ROM_BASE = 0xF800
 ENTRY = 0xFE72          # the decoder: returns the key code in A (FFh no key, FEh РУС pressed)
 RUS_BYTE = 0x7606       # 00h LAT, nonzero (the monitor stores FFh) RUS

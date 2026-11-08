@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.6.0 (in development)
+## 0.6.1 (2026-11-08)
+
+- The first release (0.5.1 and 0.6.0 were pre-releases): the 0.6.0 core, run on a Pocket (OS 2.7) by the maintainer, with the package and documentation changes below.
+- README: photos of the core on a Pocket; credits (Dmitry Tselikov's replica, the Karabas core and its ports, Sergey Kiselev's re-make); Status, Features and Install (upgrade step, the ROM disk in the zip and its CRC check); a new section on running programs from the ROM disk; the English (LAT) key names. The clocks section moved to `fpga/README.md`.
+- `fpga/README.md`: the architecture (the machine shared with the Karabas boards, a diagram and a side-by-side table), the clocks, and the Core Settings size limit measured on the hardware (moved from the README).
+- `info.txt`: the English key names of the default layout; ROM disk item 4 (Xonix) also overwrites the menu loader. `input.json`: the L button is named "Shift / Ctrl".
+- `scripts/k1/monitor_decoder.py` reads `BIOS.BIN` through `RK86_CORE_DIR`.
+- `AGENTS.md`: instructions for coding agents.
+- `updaters.json` declares the AI tool used to develop the core (`declare_ai`: Claude), for the openFPGA library and the updater tools. `scripts/package.py` checks it and checks the zip as the library's updater reads it.
+- `fpga/apf/TEMPLATE-NOTICES.md`: the note says where the core is published (it claimed no public redistribution); `LICENSES.md` lists `APF-NOTICE.txt` in the package.
+
+## 0.6.0 (pre-release, 2026-11-08)
 
 - K1 on-screen keyboard: the real 67-key layout of the Radio-86RK keyboard (64 matrix keys, SS (Shift), US (Ctrl), RUS/LAT), drawn in the 12.288 MHz output stage over the bottom of the picture. The old two-page panel (ABC/FX) is removed.
 - One label per key, from the monitor's own key decoder: the active alphabet, the shifted symbols with Shift, the control codes and the function names (VK, ZB, STR, ...) with Ctrl. A held key and the modifiers are lit.
@@ -10,7 +21,7 @@
 - Checked in simulation (unit tests, the `k1` system scenario with the panel compared with the model) and by a Quartus 25.1std build (timing met in 4 corners). Runs on a Pocket (OS 2.7).
 - README: screenshots of the keyboard in the LAT and RUS layouts (frames of the system simulation).
 
-## 0.5.1 (in development)
+## 0.5.1 (pre-release, 2026-11-08)
 
 - The POC 0.4.0-native on the production core modules (Karabas core PR14, `c7d7a92`): monitor, ROM disk, on-screen keyboard, beeper.
 - Button remapping (Core Settings: Keys, Keys on and Escape; the Custom map was dropped after the hardware finding on interact.json size), Reset, Cold boot, Sound, Text colour.
