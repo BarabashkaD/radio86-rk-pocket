@@ -1,0 +1,87 @@
+# Long simulations, weekly and on demand (AGENTS.md section 6, "CI (GitHub Actions)"). Each matrix
+# entry is one system scenario on its own runner; the full machine TB runs all 6 runs of the core
+# runner. The failure artifacts leave out the simulation inputs (cartridge.hex is the ROM disk,
+# whose public distribution is undecided; monitor.hex, font.hex) and the compiled *.vvp.
+name: weekly
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  system:
+    name: System scenario ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [boot, powerup, nocart, reset, relock, system_watchdog, k1]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: ./.github/actions/setup-iverilog
+      - name: Fetch and check the assets
+        run: python -B scripts/fetch_assets.py
+      - name: ${{ matrix.scenario }}
+        run: python -B fpga/sim/run_sim.py ${{ matrix.scenario }}
+      - if: matrix.scenario == 'k1'
+        name: K1 captures against the model
+        run: python -B scripts/k1/check_frames.py build/sim/k1 --expect 7
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: system-${{ matrix.scenario }}
+          path: |
+            build/sim/${{ matrix.scenario }}/
+            !build/sim/**/cartridge.hex
+            !build/sim/**/monitor.hex
+            !build/sim/**/font.hex
+            !**/*.vvp
+          retention-days: 7
+          if-no-files-found: ignore
+
+  core-machine-full:
+    name: Core machine TB, all runs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: ./.github/actions/setup-iverilog
+      - name: run_machine_sim.py --mem (g, frac, random, stall, stall_frac, stall_realign)
+        run: python -B cores/karabas-go-core-rk86/src/sim/machine/run_machine_sim.py --jobs 4 --mem fpga/sim/memory/tb_rk86_mem.v fpga/rtl/pocket_memory.v
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-machine-full
+          path: |
+            cores/karabas-go-core-rk86/build/sim/machine/
+            !**/cartridge.hex
+            !**/monitor.hex
+            !**/font.hex
+            !**/*.vvp
+          retention-days: 7
+          if-no-files-found: ignore

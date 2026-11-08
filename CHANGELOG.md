@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- CI (GitHub Actions): `checks` on every PR and push to `main` (Python tests, repository rules, asset check, package dry run with the openFPGA library check, unit simulations with their faults, the `system_k1_panel` test, the core's machine TB subset on the Pocket memory); `weekly` (the long system scenarios and the full machine TB). Icarus Verilog 13.0 is built from source and cached. Failure artifacts leave out the ROM disk.
+- `scripts/check_repo.py`, `scripts/ci/unit-tests.ps1`, `scripts/ci/package-dry-run.ps1`, `fpga/sim/run_core_machine.py`, and the system test `system_k1_panel` (scenario `k1_panel`).
+
 ## 0.6.1 (2026-11-08)
 
 - The first release (0.5.1 and 0.6.0 were pre-releases): the 0.6.0 core, run on a Pocket (OS 2.7) by the maintainer, with the package and documentation changes below.

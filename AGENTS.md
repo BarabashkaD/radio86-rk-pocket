@@ -109,6 +109,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 - `fpga/quartus/`: `ap_core.qsf` (device, pins), `create_project.tcl` (creates `ap_core` in a build directory, adds `fpga/rtl/*.v` and the core's `rk86_machine.prj` sources, sets `VERILOG_CONSTANT_LOOP_LIMIT 40000`), `report_pocket_machine_cdc.tcl`, `report_pocket_audio_cdc.tcl`, `report_pocket_timing.tcl` (report-only, run with `quartus_sta -t` inside a build directory).
 - `fpga/sim/`:
   - `run_sim.py`: the test runner (section 6); `frame_compare.py`: compares a 1-bit 408 x 300 frame with a golden frame, allowing one character cell (the cursor).
+  - `run_core_machine.py`: the CI subset of the core's machine TB on `pocket_memory` (imports the core runner in place).
   - `unit/`: one TB per module (`tb_assets`, `tb_bus_cdc`, `tb_cart_ppi`, `tb_cold_clear`, `tb_frame_colour`, `tb_frame_video`, `tb_k1_panel`, `tb_native_audio`, `tb_pll_watchdog`, `tb_pocket_interact`, `tb_pocket_keyboard`, `tb_pocket_memory`, `tb_pocket_window`).
   - `system/`: `tb_system.v` (`pocket_system` with a PLL stub; scenarios via `+scenario=`) and `power_up.vh` (power-up values of the machine and video).
   - `memory/tb_rk86_mem.v`: `pocket_memory` as the memory model of the core's machine TB.
@@ -128,8 +129,13 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 | `k1/monitor_decoder.py` | runs the monitor's keyboard decoder (FE72) from `BIOS.BIN` in a minimal 8080 model; prints the 64 x 8 table |
 | `k1/render.py` | renders the panel model to PNG, frames to GIF |
 | `k1/check_frames.py` | compares the panels captured by the `k1` system scenario with the model |
+| `check_repo.py` | repository rules on the tracked files: LF, final newline, no links into `docs/`, no absolute local paths (`EXEMPT_PREFIXES`, `LEGACY`: the line-ending exceptions) |
+| `ci/unit-tests.ps1` | the Python unit tests as in CI; a skipped test fails |
+| `ci/package-dry-run.ps1` | `package.py` with a stand-in bitstream in a temp folder, as in CI |
 | `tests/test_package.py` | packaging and definition limits |
 | `tests/test_k1_layout.py` | key table, decoder, generated file up to date, Verilog functions vs model (needs iverilog) |
+| `tests/test_check_repo.py` | its tests; fails while a fixed file is still in `LEGACY` |
+| `tests/test_core_machine_subset.py` | the CI machine subset still matches the pinned core runner |
 
 ### `package/`
 
@@ -158,7 +164,7 @@ python -B fpga/sim/run_sim.py --iverilog PATH ...  when iverilog is not on PATH 
 ```
 
 - Unit tests: `cart_ppi`, `audio`, `bus_cdc`, `keyboard`, `frame_video`, `frame_colour`, `k1_panel`, `assets`, `memory`, `cold_clear`, `window`, `interact`, `watchdog`. Fast.
-- System scenarios (slow, `tb_system`): `boot`, `powerup` (both compared with `golden/monitor-boot.hex`), `nocart`, `reset`, `relock`, `system_watchdog`, `menu` (compared with `golden/rom-disk-menu.hex`), `xonix`, `dpddt`, `tetris`, `k1`. `k1` takes about 40 minutes; check its captures with:
+- System scenarios (slow, `tb_system`): `boot`, `powerup` (both compared with `golden/monitor-boot.hex`), `nocart`, `reset`, `relock`, `system_watchdog`, `menu` (compared with `golden/rom-disk-menu.hex`), `xonix`, `dpddt`, `tetris`, `k1`, `system_k1_panel` (scenario `k1_panel`; CI: the panel without the monitor, 3 captures, about 11 min; check with `python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3`). `k1` takes about 40 minutes; check its captures with:
 
 ```text
 python -B scripts/k1/check_frames.py build/sim/k1
@@ -172,11 +178,15 @@ python -B scripts/k1/check_frames.py build/sim/k1
 python -B cores/karabas-go-core-rk86/src/sim/machine/run_machine_sim.py [--iverilog PATH] --mem fpga/sim/memory/tb_rk86_mem.v fpga/rtl/pocket_memory.v
 ```
 
+The CI subset: `python -B fpga/sim/run_core_machine.py` (4 of the 6 runs, about 7 min). Both write into the core's ignored `build/sim/machine/`.
+
 ### Python unit tests and the K1 generator
 
 ```text
 python -B -m unittest scripts/tests/test_package.py
 python -B -m unittest scripts/tests/test_k1_layout.py     (Verilog part needs IVERILOG or iverilog on PATH)
+pwsh -File scripts/ci/unit-tests.ps1                     all Python unit tests as in CI (a skipped test fails)
+python -B scripts/check_repo.py                          repository rules on the tracked files
 python -B scripts/k1/gen_verilog.py                       regenerate fpga/rtl/pocket_k1_layout.vh
 python -B scripts/k1/monitor_decoder.py                   print the decoder table
 ```
@@ -198,6 +208,24 @@ python -B scripts/package.py --version <version> --date <YYYY-MM-DD> [--build bu
 ```
 
 Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<date>.zip` with `Cores/BarabashkaD.Radio86RK/` (bitstream, json incl. `updaters.json`, `info.txt`, icon, licences, `APF-NOTICE.txt`), `Assets/radio86rk/BarabashkaD.Radio86RK/` (the three assets) and `Platforms/` (`radio86rk.json`, `_images/radio86rk.bin`). Every asset is checked against `assets.json`. Then the zip is checked as the openFPGA library's updater reads it (`check_library_zip`).
+
+Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in bitstream into `build/ci-local/tmp/`, as in CI; never publish that zip).
+
+### CI (GitHub Actions)
+
+- `.github/workflows/checks.yml`, on every PR to `main`, every push to `main` and on demand, 4 jobs on Ubuntu runners with PowerShell steps (a new push to a PR cancels that PR's running checks):
+  - `python`: `scripts/check_repo.py` (LF, final newline, no links into `docs/`, no absolute local paths), `scripts/ci/unit-tests.ps1` (the Python unit tests; a skipped test fails the job), `fetch_assets.py`, and `scripts/ci/package-dry-run.ps1` (`package.py` with a 256-byte stand-in `ap_core.rbf` into the runner's temp folder: definitions, assets, zip layout, openFPGA library rules; the zip is not uploaded);
+  - `sim-unit`: `run_sim.py --negative` (the unit TBs, then each fault must fail with its own error);
+  - `k1-panel`: `run_sim.py system_k1_panel` and `check_frames.py build/sim/system_k1_panel --expect 3` (the panel without the monitor, palettes 0, 1, 2; about 11 min);
+  - `core-machine`: `fpga/sim/run_core_machine.py` (the core runner's g, stall, stall_realign, stall_frac on `pocket_memory`; about 7 min).
+- The job names `Python tests and package checks`, `Unit simulations and faults`, `K1 panel scenario`, `Core machine TB subset` are the status check names a branch ruleset refers to; renaming a job needs the ruleset changed too.
+- `.github/workflows/weekly.yml`, Mondays 03:17 UTC and on demand (the schedule runs from `main`; manual runs work once the file is on `main`, for any branch that has it): the system scenarios `boot`, `powerup`, `nocart`, `reset`, `relock`, `system_watchdog`, `k1` (with `check_frames.py --expect 7`), one per runner, and the full `run_machine_sim.py --mem` command. GitHub pauses scheduled workflows in a public repository after 60 days without activity; re-enable `weekly` in the Actions tab.
+- Icarus Verilog 13.0 is built from source (tag `v13_0`, checked against its commit) by `.github/actions/setup-iverilog` and cached.
+- On failure a job uploads its output folder for 7 days, without `cartridge.hex` (the ROM disk), `monitor.hex`, `font.hex` and `*.vvp`.
+- The machine runs (`run_core_machine.py`, `run_machine_sim.py --mem`) write into the core submodule's ignored `build/sim/machine/`, an exception to "outputs go to `build/`" (section 4): the core runner sets that folder.
+- `scripts/check_repo.py` exempts the APF template (`fpga/apf/`, `fpga/core/`) from the LF rule and lists in `LEGACY` the files that have a CR or no final newline today; normalising them is a separate change the maintainer approves (it touches RTL and the fault patch `rom_disk_required.patch`), and that change removes their entries.
+- Not in CI: the ROM disk scenarios (`menu`, `xonix`, `dpddt`, `tetris`: 1-2 h each), the Quartus build, the hardware test.
+- Every step runs locally in PowerShell from the repo root with the same commands and scripts (iverilog on PATH or `IVERILOG` set; the core's `run_machine_sim.py`, the weekly full machine command, reads only PATH or `--iverilog`, not `IVERILOG`; without `RUNNER_TEMP` the dry run works in `build/ci-local/tmp/`).
 
 ### Install on a Pocket
 
