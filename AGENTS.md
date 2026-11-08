@@ -231,7 +231,7 @@ Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in
 
 Unzip the package onto the root of the Pocket's SD card. The core appears as "Radio-86RK". Monitor and font are required in the Assets folder; the ROM disk is optional, but another image than the pinned one is an asset error (red frame, CPU held). Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` first. Hardware runs are the maintainer's.
 
-## 7. Features (0.6.1)
+## 7. Features (0.6.2)
 
 - The Karabas core's Radio-86RK machine at the Karabas speed: `clk_74a` (74.25 MHz) with a clock enable on 160 of 297 ticks = 40 MHz average timebase; CPU about 1.43 MHz (40 / 28).
 - Monitor and font from data slots, checked by size and CRC32; a bad or missing one holds the CPU in reset and shows a red diagnostic frame.
@@ -245,7 +245,7 @@ Unzip the package onto the root of the Pocket's SD card. The core appears as "Ra
 
 ## 8. Restrictions, known issues, limitations
 
-- 0.6.1 is the first release (0.5.1 and 0.6.0 were pre-releases, `CHANGELOG.md`); the maintainer ran it on a Pocket with OS 2.7. Hardware behaviour beyond the maintainer's runs is unverified.
+- 0.6.1 was the first release (0.5.1 and 0.6.0 were pre-releases, `CHANGELOG.md`); 0.6.2 is the same core with new artwork. The maintainer ran both on a Pocket with OS 2.7. Hardware behaviour beyond the maintainer's runs is unverified.
 - No savestates (Memories), no sleep (`sleep_supported: false`).
 - CPU at about 1.43 MHz, about 20% slower than the original's ~1.78 MHz. The divider is in the Karabas core, so a speed change is a core change that also affects the Karabas boards.
 - No tape: `tape_in` is tied high; data slot 3 (0x2300_0000) is reserved for tape images. The Dock USB keyboard is recognized but not used (the second matrix input is tied off). Interact registers 0x11C-0x144 are reserved.

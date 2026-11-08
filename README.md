@@ -16,7 +16,7 @@ The core is built on these works:
 
 ## Status
 
-The latest version, [0.6.1](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.6.1), is the first release; it carries the on-screen keyboard K1 of 0.6.0: the full 67-key layout of the real Radio-86RK keyboard. It runs on a Pocket (OS 2.7). Changes: [CHANGELOG.md](CHANGELOG.md).
+The latest version is [0.6.2](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.6.2): the core of 0.6.1, the first release, with new artwork. It carries the on-screen keyboard K1 of 0.6.0: the full 67-key layout of the real Radio-86RK keyboard. It runs on a Pocket (OS 2.7). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
