@@ -9,6 +9,7 @@ writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version
 """
 import argparse
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -27,17 +28,33 @@ GLYPHS = {
     'K': ['10001', '10010', '10100', '11000', '10100', '10010', '10001'],
     '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
     '6': ['01110', '10000', '10000', '11110', '10001', '10001', '01110'],
+    'A': ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
+    'D': ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
+    'I': ['01110', '00100', '00100', '00100', '00100', '00100', '01110'],
+    'O': ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
+    '-': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
 }
+ICON = (36, 36, 'RK', 2)                     # width, height, text, glyph scale
+BANNER = (521, 165, 'RADIO-86RK', 7)         # the platform image
 
 
 def reverse_bits(data):
     return bytes(int('{:08b}'.format(b)[::-1], 2) for b in data)
 
 
+BACKGROUND = (24, 112)           # the background's grey at the top and at the bottom row
+SHADOW = 0                       # the text's drop shadow, down and right of it
+
+
+@functools.lru_cache(maxsize=None)
 def graphic(width, height, text, scale):
     """The POC image format that worked on the Pocket: 16-bit pixels, intensity in the upper
-    byte, stored rotated 90 degrees counter-clockwise."""
-    pixels = [[0] * width for _ in range(height)]
+    byte, stored rotated 90 degrees counter-clockwise. 8-bit greyscale: the frame and the text
+    at full brightness, the text with a drop shadow, on a vertical grey gradient (BACKGROUND),
+    so the image has more than 16 grey levels and the openFPGA library stores the PNG it makes
+    from it as 8-bit greyscale (its chunky_png picks the bit depth from the number of levels)."""
+    pixels = [[BACKGROUND[0] + (BACKGROUND[1] - BACKGROUND[0]) * y // max(1, height - 1)] * width
+              for y in range(height)]
     border = 3 if width == 36 else 8
     for y in range(border, height - border):
         for x in range(border, width - border):
@@ -45,13 +62,15 @@ def graphic(width, height, text, scale):
                 pixels[y][x] = 255
     left = (width - ((len(text) * 6 - 1) * scale)) // 2
     top = (height - 7 * scale) // 2
-    for index, letter in enumerate(text):
-        for gy, row in enumerate(GLYPHS[letter]):
-            for gx, value in enumerate(row):
-                if value == '1':
-                    for dy in range(scale):
-                        for dx in range(scale):
-                            pixels[top + gy * scale + dy][left + (index * 6 + gx) * scale + dx] = 255
+    shadow = max(1, scale // 3)
+    for offset, level in ((shadow, SHADOW), (0, 255)):
+        for index, letter in enumerate(text):
+            for gy, row in enumerate(GLYPHS[letter]):
+                for gx, value in enumerate(row):
+                    if value == '1':
+                        for dy in range(scale):
+                            for dx in range(scale):
+                                pixels[top + gy * scale + dy + offset][left + (index * 6 + gx) * scale + dx + offset] = level
     encoded = bytes(c for y in range(width) for x in range(height) for c in (pixels[x][width - 1 - y], 0))
     for y in range(height):                       # the POC's self-check of the rotation and byte layout
         for x in range(width):
@@ -262,8 +281,8 @@ def main():
         print('ERROR: bit reversal round trip')
         return 1
     open(os.path.join(core_dir, 'bitstream.rbf_r'), 'wb').write(rev)
-    open(os.path.join(core_dir, 'icon.bin'), 'wb').write(graphic(36, 36, 'RK', 2))
-    open(os.path.join(sd, 'Platforms', '_images', PLATFORM + '.bin'), 'wb').write(graphic(521, 165, 'RK86', 12))
+    open(os.path.join(core_dir, 'icon.bin'), 'wb').write(graphic(*ICON))
+    open(os.path.join(sd, 'Platforms', '_images', PLATFORM + '.bin'), 'wb').write(graphic(*BANNER))
     shutil.copyfile(os.path.join(pkg, 'platform', PLATFORM + '.json'), os.path.join(sd, 'Platforms', PLATFORM + '.json'))
     table = json.load(open(os.path.join(pkg, 'assets.json'), encoding='utf-8'))
     for asset in table['assets']:

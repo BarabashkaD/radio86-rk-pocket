@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 (2026-11-08)
 
+- The 0.6.1 core (the same bitstream) with new artwork, run on a Pocket (OS 2.7) by the maintainer.
 - CI (GitHub Actions): `checks` on every PR and push to `main` (Python tests, repository rules, asset check, package dry run with the openFPGA library check, unit simulations with their faults, the `system_k1_panel` test, the core's machine TB subset on the Pocket memory); `weekly` (the long system scenarios and the full machine TB). Icarus Verilog 13.0 is built from source and cached. Failure artifacts leave out the ROM disk.
 - `scripts/check_repo.py`, `scripts/ci/unit-tests.ps1`, `scripts/ci/package-dry-run.ps1`, `fpga/sim/run_core_machine.py`, and the system test `system_k1_panel` (scenario `k1_panel`).
+- Icon and platform image in 8-bit greyscale: the frame and the text, with a drop shadow, on a vertical grey gradient (more than 16 grey levels), so the openFPGA library makes 8-bit greyscale PNGs of them instead of 1-bit black and white. The platform image reads "RADIO-86RK" (was "RK86").
 
 ## 0.6.1 (2026-11-08)
 

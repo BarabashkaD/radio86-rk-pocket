@@ -18,8 +18,28 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(package.reverse_bits(b'\x01\x02\x96\x80'), b'\x80\x40\x69\x01')
 
     def test_graphic_layout(self):
-        encoded = package.graphic(36, 36, 'RK', 2)
+        encoded = package.graphic(*package.ICON)
         self.assertEqual(len(encoded), 36 * 36 * 2)
+        self.assertEqual(package.ICON[:2], (36, 36))
+        self.assertEqual(package.BANNER[:2], (521, 165))
+
+    def test_banner_text_fits_inside_the_frame(self):
+        width, height, text, scale = package.BANNER
+        border = 8
+        shadow = max(1, scale // 3)
+        self.assertLessEqual((len(text) * 6 - 1) * scale + shadow, width - 2 * (border + 1))
+        self.assertLessEqual(7 * scale + shadow, height - 2 * (border + 1))
+
+    def test_graphic_is_8_bit_greyscale(self):
+        # more than 16 grey levels: the openFPGA library (chunky_png) then stores the PNG it makes
+        # from the image as 8-bit greyscale, not 1-bit
+        for width, height, text, scale in (package.ICON, package.BANNER):
+            encoded = package.graphic(width, height, text, scale)
+            self.assertEqual(len(encoded), width * height * 2)
+            levels = set(encoded[0::2])
+            self.assertGreater(len(levels), 16, (width, height))
+            self.assertIn(255, levels)                    # the frame and the text at full brightness
+            self.assertEqual(set(encoded[1::2]), {0})     # the second byte of each pixel stays 0
 
     def test_definitions_within_limits(self):
         self.assertEqual(package.check_definitions(os.path.join(ROOT, 'package')), [])
@@ -70,8 +90,8 @@ class PackageTest(unittest.TestCase):
                     files['Cores/%s/%s.json' % (package.CORE_ID, name)] = f.read()
         with open(os.path.join(pkg, 'platform', package.PLATFORM + '.json'), 'rb') as f:
             files['Platforms/%s.json' % package.PLATFORM] = f.read()
-        files['Cores/%s/icon.bin' % package.CORE_ID] = package.graphic(36, 36, 'RK', 2)
-        files['Platforms/_images/%s.bin' % package.PLATFORM] = package.graphic(521, 165, 'RK86', 12)
+        files['Cores/%s/icon.bin' % package.CORE_ID] = package.graphic(*package.ICON)
+        files['Platforms/_images/%s.bin' % package.PLATFORM] = package.graphic(*package.BANNER)
         if change:
             change(files)
         path = os.path.join(folder, 'library.zip')
