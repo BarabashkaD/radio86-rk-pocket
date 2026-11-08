@@ -12,7 +12,7 @@ wire de, hs, vs, skip, adac, alr;
 wire [31:0] fc, fd, fdisp;
 pocket_frame_video dut(.source_clk(sclk), .source_reset_n(srst), .pixel_clk(pclk), .pixel_reset_n(prst),
     .pixel_valid(valid), .pixel_data(data), .frame_start(fs), .frame_end(fe), .pixel_address(addr),
-    .diagnostic_error(1'b0), .green(green), .rgb(rgb), .de(de), .hs(hs), .vs(vs), .skip(skip),
+    .diagnostic_error(1'b0), .green(green), .panel_state(78'd0), .rgb(rgb), .de(de), .hs(hs), .vs(vs), .skip(skip),
     .audio_dac(adac), .audio_lrck(alr), .frames_completed(fc), .frames_dropped(fd), .frames_displayed(fdisp));
 task send_frame;
     integer i;

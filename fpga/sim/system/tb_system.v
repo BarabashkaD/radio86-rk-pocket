@@ -3,12 +3,21 @@
 // System testbench of the Pocket target (spec 9.4-9.7): pocket_system with the bridge and data
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
-// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|dpddt|tetris
+// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|dpddt|tetris|k1
 // +timeout=<clk to wait for the monitor to take a key, default 4000000>
-// Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex.
+// Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex;
+// k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
+// and k1.log (STEP lines and, per capture, "STATE <n> <panel state hex> <green> <what>", the state
+// pocket_frame_video latched for that frame; scripts/k1/check_frames.py renders the model for it).
+// The keyboard timings run on a 10x shorter base: pocket_keyboard CLK_HZ = 7425000, so each of its
+// millisecond parameters (TAP_MS, CHORD_MS, ...) lasts a tenth of its time in the build.
+// The ROM disk scenarios type through the reserved second keyboard input (hid_cols / hid_mods of
+// radio86rk_pocket, forced here from kbd_rows: a TB key is a real matrix key), not through the panel.
 `include "power_up.vh"
 module tb_system;
+`include "pocket_k1_layout.vh"               // k1_row / k1_line of the K1 key ids
 defparam sys.pll_watchdog.TIMEOUT = 20000;   // 270 us here; 28 ms in the build
+defparam sys.rk86.keyboard.CLK_HZ = 7425000; // the keyboard's milliseconds 10x shorter (header)
 reg clk = 1'b0, clk_av = 1'b0;
 always #6.734 clk = ~clk;                    // clk_74a, 74.25 MHz
 always #40.690 clk_av = ~clk_av;             // clk_core_12288 of the PLL
@@ -52,6 +61,27 @@ always @(posedge clk)
             if (sys.pixel_end) begin capturing <= 1'b0; capture_done <= 1'b1; end
         end
     end
+// K1: the RGB output of one displayed frame. From a video_vs, video_rgb is taken while video_de
+// (408 x 300 pixels, row by row), with the panel state pocket_frame_video latched for the frame
+// (at x == 0, y == 0, 3 clk before vs). vs_count counts the displayed frames (the vs pulses).
+reg [23:0] rgb_frame [0:122399];
+reg rgb_go = 1'b0, rgb_on = 1'b0, rgb_done = 1'b0;
+reg [77:0] rgb_state = 78'd0;
+reg rgb_green = 1'b0;
+integer rgb_count = 0, vs_count = 0;
+always @(posedge clk_av) begin
+    if (vs) vs_count = vs_count + 1;
+    if (rgb_go && !rgb_done) begin
+        if (vs) begin
+            if (rgb_on) begin $display("ERROR: RGB capture: vs after %0d pixels", rgb_count); $finish; end
+            rgb_on <= 1'b1; rgb_count <= 0; rgb_state <= sys.video.frame_state; rgb_green <= sys.video.green_sync[2];
+        end else if (rgb_on && de) begin
+            rgb_frame[rgb_count] <= rgb;
+            rgb_count <= rgb_count + 1;
+            if (rgb_count == 122399) begin rgb_on <= 1'b0; rgb_done <= 1'b1; end
+        end
+    end
+end
 // keyboard reads of the CPU (PPI port B, 8001): the monitor's scans
 integer kbd_reads = 0;
 reg prev_kbd_read = 1'b0;
@@ -68,7 +98,13 @@ always @(posedge clk)
     end
 reg [8*16-1:0] scenario;
 integer timeout, i, guard, n, start_frame;
-localparam [15:0] B_LEFT = 16'h0004, B_RIGHT = 16'h0008, B_A = 16'h0010, B_B = 16'h0020, B_L = 16'h0100;
+localparam [15:0] B_UP = 16'h0001, B_DOWN = 16'h0002, B_LEFT = 16'h0004, B_RIGHT = 16'h0008, B_A = 16'h0010,
+                  B_B = 16'h0020, B_L = 16'h0100, B_R = 16'h0200;
+localparam [6:0] KEY_VK = 7'd10, NO_KEY = 7'd127;    // matrix key ВК; no key
+// the second keyboard input: tb_key (a matrix key 0..63, or NO_KEY) pulls its column while its row is scanned
+reg [6:0] tb_key = NO_KEY;
+wire [7:0] tb_hid_cols = tb_key < 7'd64 && !sys.rk86.kbd_rows[tb_key[5:3]] ? ~(8'd1 << tb_key[2:0]) : 8'hFF;
+wire [2:0] tb_hid_mods = 3'b111;
 wire [31:0] frames = sys.native_frames;
 
 task fail(input [8*64-1:0] what);
@@ -134,8 +170,30 @@ task wait_ram(input integer ram_at, input integer cart_at, input integer len, in
         end
     end
 endtask
-task tap(input [15:0] b);                    // panel-only buttons: navigation, L
+task tap(input [15:0] b);                    // a short press (an L tap toggles the Shift latch)
     begin pad = {4'h1, 12'h0, b}; repeat (8) @(negedge clk); pad = {4'h1, 28'h0}; repeat (8) @(negedge clk); end
+endtask
+// The panel chord (00-global.md, L+R): L, then R while L is held (well inside CHORD_MS), both released.
+task chord;
+    begin
+        pad = {4'h1, 12'h0, B_L}; repeat (8) @(negedge clk);
+        pad = {4'h1, 12'h0, B_L | B_R}; repeat (8) @(negedge clk);
+        pad = {4'h1, 28'h0}; repeat (8) @(negedge clk);
+    end
+endtask
+task open_panel;
+    begin
+        if (sys.rk86.keyboard.panel_open) fail("open_panel: the panel is already open");
+        chord;
+        if (!sys.rk86.keyboard.panel_open) fail("the panel did not open");
+    end
+endtask
+task close_panel;
+    begin
+        if (!sys.rk86.keyboard.panel_open) fail("close_panel: the panel is not open");
+        chord;
+        if (sys.rk86.keyboard.panel_open) fail("the panel did not close");
+    end
 endtask
 // The monitor delivers a key when its status routine FE01 has seen it on 21 scans: it writes FF
 // to 7605 (FE63 then clears it and returns 7609). Each delivery is counted here.
@@ -147,34 +205,160 @@ always @(posedge clk)
 // (its cached key 7609 = FF; else a repeated key, as the second F of 1FF, waits for the
 // autorepeat), then hold until the monitor has delivered the key, then release. The release is
 // not awaited here: after ВК the monitor runs the command and scans the keys only after it.
-task press_key(input [15:0] b);
-    integer start;
+task wait_key_release;
     begin
         start_frame = frames;
         while (sys.rk86.mem.ram[15'h7609] !== 8'hFF) begin
             @(negedge clk);
             if (frames - start_frame > 30) fail("the monitor did not see the key release");
         end
+    end
+endtask
+task press_key(input [6:0] k);                // a matrix key on the second keyboard input
+    integer start;
+    begin
+        wait_key_release;
         // 21 scans of about 2.5 ms each and the beep: about 4 frames
-        pad = {4'h1, 12'h0, b}; start = key_deliveries; start_frame = frames;
+        tb_key = k; start = key_deliveries; start_frame = frames;
         while (key_deliveries == start) begin
             @(negedge clk);
             if (frames - start_frame > 10) fail("the monitor did not take the key");
         end
-        pad = {4'h1, 28'h0};
+        tb_key = NO_KEY;
     end
 endtask
-function integer panel_index(input [7:0] c);
+// the matrix key of a character typed without Shift in LAT: digits and capitals print 32 + k, "," is 28
+function [6:0] matrix_key(input [7:0] c);
     begin
-        if (c >= "0" && c <= "9") panel_index = c - "0";
-        else if (c >= "A" && c <= "Z") panel_index = c - "A" + 10;
-        else panel_index = 36;                                    // ","
+        if (c == ",") matrix_key = 7'd28;
+        else matrix_key = c - 8'd32;
     end
 endfunction
 task type_char(input [7:0] c);
+    begin press_key(matrix_key(c)); end
+endtask
+
+// --- K1 (scenario k1): typing through the panel, the RGB captures ---
+localparam [6:0] K1_G = 7'd28, K1_R = 7'd40, K1_K = 7'd25, K1_8 = 7'd16;    // key ids (00-global.md)
+integer k1_log, captures = 0, hold_start;
+reg [7:0] rus_byte;
+task k1_step(input [8*48-1:0] what);
     begin
-        while (sys.rk86.keyboard.selection != panel_index(c)) tap(B_RIGHT);
-        press_key(B_A);
+        $display("STEP %0s (frame %0d, %0t)", what, frames, $time);
+        $fdisplay(k1_log, "STEP %0s (frame %0d)", what, frames); $fflush(k1_log);
+    end
+endtask
+task wait_vs(input integer count);           // count displayed frames (vs pulses), bounded
+    integer v, clks;
+    begin
+        v = vs_count; clks = 0;
+        while (vs_count < v + count) begin
+            @(posedge clk_av); clks = clks + 1;
+            if (clks > (count + 1) * 204800) fail("no displayed frames");
+        end
+    end
+endtask
+// the open panel's expected state bus (Task 2 layout), RUS line not pulled
+function [77:0] k1_state(input [6:0] sel, input rus, input sh, input ct, input [63:0] pulled, input [1:0] pal);
+    k1_state = {pal, pulled, 1'b0, ct, sh, rus, sel, 1'b1};
+endfunction
+// one displayed frame to k1_<n>.hex, its latched panel state to k1.log; the state must be want
+task capture_k1(input [77:0] want, input [8*48-1:0] what);
+    integer v, clks;
+    reg [8*16-1:0] name;
+    begin
+        captures = captures + 1; v = vs_count; rgb_go = 1'b1;
+        clks = 0;
+        while (!rgb_done) begin
+            @(posedge clk_av); clks = clks + 1;
+            if (vs_count > v + 3 || clks > 5 * 204800) fail("RGB capture: no complete displayed frame");
+        end
+        rgb_go = 1'b0;
+        $sformat(name, "k1_%0d.hex", captures);
+        $writememh(name, rgb_frame);
+        $display("STATE %0d %h %0d %0s", captures, rgb_state, rgb_green, what);
+        $fdisplay(k1_log, "STATE %0d %h %0d %0s", captures, rgb_state, rgb_green, what); $fflush(k1_log);
+        if (rgb_state !== want) begin
+            $display("ERROR: capture %0d: panel state %h, expected %h", captures, rgb_state, want); $finish;
+        end
+        rgb_done = 1'b0;
+    end
+endtask
+// D-pad taps: Down / Up until the row is the key's row, then Right until the selection is the key
+task select_key(input [6:0] id);
+    integer steps;
+    begin
+        steps = 0;
+        while (k1_row(sys.rk86.keyboard.selection) != k1_row(id)) begin
+            tap(k1_row(id) > k1_row(sys.rk86.keyboard.selection) ? B_DOWN : B_UP);
+            steps = steps + 1;
+            if (steps > 6) fail("select_key: the row was not reached");
+        end
+        steps = 0;
+        while (sys.rk86.keyboard.selection != id) begin
+            tap(B_RIGHT); steps = steps + 1;
+            if (steps > 14) fail("select_key: the key was not reached");
+        end
+    end
+endtask
+// press_key's handshake through the panel: after the monitor saw the last key released, hold B on
+// the selected key (panel_hold), until the monitor has delivered it (panel_release)
+task panel_hold(input [6:0] id);
+    begin
+        select_key(id); wait_key_release;
+        hold_start = key_deliveries; pad = {4'h1, 12'h0, B_B}; repeat (8) @(negedge clk);
+        if (sys.rk86.keyboard.pulled !== (64'd1 << k1_line(id))) fail("B does not pull the selected key's line");
+    end
+endtask
+task panel_release;
+    begin
+        start_frame = frames;
+        while (key_deliveries == hold_start) begin
+            @(negedge clk);
+            if (frames - start_frame > 10) fail("the monitor did not take the panel key");
+        end
+        pad = {4'h1, 28'h0};
+    end
+endtask
+task panel_press(input [6:0] id);
+    begin panel_hold(id); panel_release; end
+endtask
+// the typed text in the monitor's line buffer (7633, F8EE) and on the screen (RAM 76D0-7FF3)
+// followed by a blank cell (00, as the monitor clears the screen at FDA3, or 20): nothing typed
+// after it. On a failure the RAM 7600-7FF3 goes to k1_screen.hex.
+task wait_screen(input [8*4-1:0] text, input integer len, input integer max_frames, input [8*48-1:0] what);
+    integer a, k, found;
+    begin
+        start_frame = frames; found = 0;
+        while (!found) begin
+            for (a = 16'h76D0; a + len < 16'h7FF4 && !found; a = a + 1) begin
+                found = sys.rk86.mem.ram[a + len] === 8'h00 || sys.rk86.mem.ram[a + len] === 8'h20;
+                for (k = 0; k < len; k = k + 1) if (sys.rk86.mem.ram[a + k] !== text[8*(len-1-k) +: 8]) found = 0;
+            end
+            for (k = 0; k < len; k = k + 1) if (sys.rk86.mem.ram[16'h7633 + k] !== text[8*(len-1-k) +: 8]) found = 0;
+            if (!found) begin
+                if (frames - start_frame > max_frames) begin
+                    $writememh("k1_screen.hex", sys.rk86.mem.ram, 16'h7600, 16'h7FF3);
+                    fail(what);
+                end
+                n = frames; wait (frames != n);
+            end
+        end
+    end
+endtask
+// the prompt "-->" (2D 2D 3E) on the screen RAM 76D0-7FF3, bounded in frames
+task wait_prompt(input integer max_frames);
+    integer a, found;
+    begin
+        start_frame = frames; found = 0;
+        while (!found) begin
+            for (a = 16'h76D0; a + 3 < 16'h7FF4 && !found; a = a + 1)
+                found = sys.rk86.mem.ram[a] === 8'h2D && sys.rk86.mem.ram[a + 1] === 8'h2D && sys.rk86.mem.ram[a + 2] === 8'h3E;
+            if (!found) begin
+                if (frames - start_frame > max_frames) fail("the prompt --> is not on the screen");
+                n = frames; wait (frames != n);
+            end
+        end
     end
 endtask
 task boot(input with_cart, input [1:0] boot_preset);
@@ -187,12 +371,10 @@ task boot(input with_cart, input [1:0] boot_preset);
 endtask
 task to_menu;
     begin
-        tap(B_L);
-        if (!sys.rk86.keyboard.panel_open) fail("the panel did not open");
         type_char("R"); type_char("0"); type_char(","); type_char("1"); type_char("F"); type_char("F");
-        type_char(","); type_char("0"); press_key(B_B);
+        type_char(","); type_char("0"); press_key(KEY_VK);
         wait_ram(0, 0, 512, 20, "R0,1FF,0 did not copy the loader");
-        type_char("G"); type_char("0"); press_key(B_B);
+        type_char("G"); type_char("0"); press_key(KEY_VK);
         wait_fetch(16'h741C, 30, "no ROM disk menu");
     end
 endtask
@@ -224,6 +406,7 @@ initial begin
     $readmemh("monitor.hex", monitor); $readmemh("font.hex", font); $readmemh("cartridge.hex", cart);
     // as the core's TBs: no interrupt source, and the write/read holds start at 0
     force sys.rk86.machine.cpu_int = 1'b0;
+    force sys.rk86.hid_cols = tb_hid_cols; force sys.rk86.hid_mods = tb_hid_mods;
     sys.rk86.machine.dma_we_q = 1'b0; sys.rk86.machine.crt_we_q = 1'b0; sys.rk86.machine.crt_rd_q = 1'b0;
     if (scenario == "powerup") begin `RANDOM_UP(sys.rk86.machine, sys.rk86.native_video) end
     else begin `ZERO_UP(sys.rk86.machine, sys.rk86.native_video) end
@@ -280,7 +463,7 @@ initial begin
         $display("PASS watchdog: PLL reset after the timeout, relock, machine and assets kept, video restarted");
     end else if (scenario == "menu") begin
         boot(1'b1, 2'd0); to_menu;
-        tap(B_L); wait_frames(2);
+        wait_frames(2);
         capture;
         $display("PASS menu: R0,1FF,0 copied the loader, G0 reached the ROM disk menu, frame.hex");
     end else if (scenario == "xonix") begin
@@ -302,7 +485,7 @@ initial begin
         boot(1'b1, 2'd1); to_menu; type_char("6");
         wait_fetch(16'h3000, 60, "TETRIS did not start at 3000");
         check_ram(12288, 30624, 1632, "TETRIS image differs at its start");
-        tap(B_L); repeat (64) @(negedge clk);
+        repeat (64) @(negedge clk);
         pad = {4'h1, 12'h0, B_LEFT}; n = 0; start_frame = frames;
         while (frames < start_frame + 3) begin
             @(posedge clk);
@@ -311,6 +494,67 @@ initial begin
         pad = {4'h1, 28'h0};
         if (n == 0) fail("TETRIS never scanned row 2");
         $display("PASS tetris: started at 3000, D-pad Left = 7 with the Digits 7-8-9-6 preset");
+    end else if (scenario == "k1") begin
+        k1_log = $fopen("k1.log", "w");
+        if (k1_line(K1_G) != 7'd39 || k1_line(K1_R) != 7'd50 || k1_line(K1_K) != 7'd43 || k1_line(K1_8) != 7'd24)
+            fail("the K1 key ids of this TB do not match pocket_k1_layout.vh");
+        boot(1'b0, 2'd0);
+        k1_step("keyboard loop FE63, no ROM disk; L+R");
+        wait_prompt(5); wait_vs(2);              // the prompt in a displayed frame
+        open_panel; wait_vs(2);
+        capture_k1(k1_state(K1_G, 0, 0, 0, 64'd0, 2'd0), "LAT, selection G, palette 0 (v1.1)");
+        k1_step("RK typed through the panel");
+        panel_press(K1_R); panel_press(K1_K);
+        wait_screen("RK", 2, 5, "RK typed through the panel is not on the screen");
+        select_key(K1_8);
+        wait_frames(3);                          // RK in a completed, displayed frame
+        panel_hold(K1_8); wait_vs(1);            // the held key in the latched state of the next frame
+        capture_k1(k1_state(K1_8, 0, 0, 0, 64'd1 << 24, 2'd0), "B held on 8 (lit), RK on the screen");
+        panel_release;
+        wait_screen("RK8", 3, 5, "RK8 is not on the screen");
+        wait_vs(2);                              // RK8 in a displayed frame (capture 3 follows)
+        k1_step("L tap: Shift latched");
+        tap(B_L);
+        if (!sys.rk86.keyboard.shift_latch) fail("the L tap did not latch Shift");
+        wait_vs(2);
+        capture_k1(k1_state(K1_8, 0, 1, 0, 64'd0, 2'd0), "LAT, Shift latched");
+        k1_step("L tap (unlatch); R held: RUS");
+        tap(B_L);
+        if (sys.rk86.keyboard.shift_latch) fail("the second L tap did not clear the Shift latch");
+        wait_key_release;
+        // FE01 takes РУС after 21 scans, then waits at FE51 for its release and only then inverts
+        // 7606: R is held until the monitor waits there, then released
+        rus_byte = sys.rk86.mem.ram[15'h7606];
+        pad = {4'h1, 12'h0, B_R};
+        wait_fetch(16'hFE51, 10, "R: the monitor did not take RUS (FE51)");
+        pad = {4'h1, 28'h0}; start_frame = frames;
+        while (sys.rk86.mem.ram[15'h7606] === rus_byte) begin
+            @(negedge clk);
+            if (frames - start_frame > 5) fail("R did not switch the monitor to RUS");
+        end
+        repeat (8) @(negedge clk);
+        if (!sys.rk86.rus_mode) fail("R: 7606 changed, but rus_mode is not RUS");
+        start_frame = frames;
+        while (sys.rk86.keyboard.rus_line) begin
+            @(negedge clk);
+            if (frames - start_frame > 2) fail("the RUS line stays pulled after R");
+        end
+        wait_vs(2);
+        capture_k1(k1_state(K1_8, 1, 0, 0, 64'd0, 2'd0), "RUS");
+        k1_step("L held past the tap window: Ctrl");
+        pad = {4'h1, 12'h0, B_L}; wait_vs(2);
+        if (!sys.rk86.keyboard.ctrl_line) fail("L held does not pull the Ctrl line");
+        capture_k1(k1_state(K1_8, 1, 0, 1, 64'd0, 2'd0), "RUS, L held: Ctrl");
+        pad = {4'h1, 28'h0}; repeat (8) @(negedge clk);
+        if (sys.rk86.keyboard.shift_latch || sys.rk86.keyboard.ctrl_line) fail("L held: Shift toggled or Ctrl kept after the release");
+        k1_step("palettes 1 and 2");
+        bridge_write(32'h118, 1); wait_vs(2);
+        capture_k1(k1_state(K1_8, 1, 0, 0, 64'd0, 2'd1), "RUS, palette 1 (v1.4)");
+        bridge_write(32'h118, 2); wait_vs(2);
+        capture_k1(k1_state(K1_8, 1, 0, 0, 64'd0, 2'd2), "RUS, palette 2 (mono)");
+        close_panel;
+        $fclose(k1_log);
+        $display("PASS k1: panel opened, RK8 typed through it, %0d RGB captures (k1_<n>.hex, k1.log)", captures);
     end else fail("unknown scenario");
     $finish;
 end

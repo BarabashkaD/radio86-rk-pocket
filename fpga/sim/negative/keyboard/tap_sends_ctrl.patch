@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_keyboard.v b/fpga/rtl/pocket_keyboard.v
+index cf52fd8..c71749c 100644
+--- a/fpga/rtl/pocket_keyboard.v
++++ b/fpga/rtl/pocket_keyboard.v
+@@ -146,7 +146,7 @@ always @(posedge clk) begin
+         if (tick && !(&r_ms)) r_ms <= r_ms + 10'd1;
+         // L
+         if (press[8] && !lock) begin
+-            l_on <= 1'b1; l_tap <= 1'b1; l_ms <= 10'd0; ctrl_wait <= key_held;
++            l_on <= 1'b1; l_tap <= 1'b1; l_ms <= 10'd0; ctrl_wait <= 1'b0;
+         end else if (l_on) begin
+             if (!buttons[8]) begin
+                 l_on <= 1'b0; ctrl_wait <= 1'b0;

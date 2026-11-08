@@ -2,7 +2,7 @@
 
 An openFPGA core of the Radio-86RK home computer for the Analogue Pocket. It is built on the machine of the [Karabas core](https://github.com/andykarpov/karabas-go-core-rk86) (`cores/karabas-go-core-rk86`, a submodule), Dmitry Tselikov's FPGA replica of the Radio-86RK.
 
-Status: in development, version 0.5.1, not released. First run on a Pocket (OS 2.7): the core starts and works.
+Status: in development, version 0.6.0, not released. Version 0.6.0 with the new on-screen keyboard runs on a Pocket (OS 2.7).
 
 - FPGA implementation: [fpga/README.md](fpga/README.md) (bridge map, data slots, build and tests)
 - Licences of all parts: [LICENSES.md](LICENSES.md)
@@ -15,12 +15,26 @@ Unzip the package `BarabashkaD.Radio86RK_<version>_<date>.zip` onto the root of 
 
 Build the package with `pwsh -File scripts/build.ps1`, `python -B scripts/fetch_assets.py` and `python -B scripts/package.py --version <version> --date <YYYY-MM-DD>`. Details: [fpga/README.md](fpga/README.md). The package is not released yet.
 
+## On-screen keyboard
+
+The keyboard opens with L+R at the bottom of the screen. It has the 67 keys of the real Radio-86RK in their real places, and each key shows what it types now: Latin letters in LAT mode, Cyrillic in RUS mode (R switches), the second symbols while Shift is latched, the control names while Ctrl (L) is held. The pictures are frames of the core's video output in the system simulation, at 2x.
+
+English (LAT) layout, the mode after start; the selection on G:
+
+![The on-screen keyboard in LAT mode](images/keyboard-lat.png)
+
+Russian (RUS) layout, after R; the key names are in Russian too (ВК Enter, ЗБ Backspace, АР2 Esc, СТР clear screen, ПС line feed, УС Ctrl, СС Shift):
+
+![The on-screen keyboard in RUS mode](images/keyboard-rus.png)
+
 ## Controls
 
 From the core's `info.txt`:
 
-- Open the on-screen keyboard: L. D-pad selects, A presses, B Enter (VK), X Backspace (ZB), Y Space.
-- Start switches the ABC/FX page; R holds RUS/LAT.
+- On-screen keyboard: the real 67 keys, one label per key from the active alphabet. L+R opens and closes it. Core Settings > Keyboard colours: Pink (v1.1), Grey (v1.4) or Mono (follows Text colour).
+- With the keyboard open: D-pad selects a key; B presses it (held while B is held); A Space, Y ZB (Backspace), X VK (Enter), Start AR2 (Esc); Select + D-pad the arrows.
+- L tap latches Shift (the next L tap releases it); L held is Ctrl; R is RUS/LAT. These work with the keyboard open or closed.
+- The prompt stays on the bottom row, under the keyboard. Press STR (clear screen) to bring it to the top, or close the keyboard with L+R.
 - Panel closed: the buttons follow Core Settings > Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y) and Escape (Select, Start or None).
 - Keys on D-pad: A Space, B VK, X ZB, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down VK, Up ZB, Left Y.
 - Escape: the chosen button sends AR2 (Esc), the other sends VK; None: both send VK.

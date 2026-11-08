@@ -12,7 +12,9 @@
       {"name": "Keys on", "id": 37, "type": "list", "enabled": true, "persist": true, "address": "0x00000110", "defaultval": 0,
        "options": [{"value": 0, "name": "D-pad"}, {"value": 1, "name": "A B X Y"}]},
       {"name": "Escape (AR2)", "id": 38, "type": "list", "enabled": true, "persist": true, "address": "0x00000114", "defaultval": 0,
-       "options": [{"value": 0, "name": "Select"}, {"value": 1, "name": "Start"}, {"value": 2, "name": "None"}]}
+       "options": [{"value": 0, "name": "Select"}, {"value": 1, "name": "Start"}, {"value": 2, "name": "None"}]},
+      {"name": "Keyboard colours", "id": 39, "type": "list", "enabled": true, "persist": true, "address": "0x00000118", "defaultval": 0,
+       "options": [{"value": 0, "name": "Pink (v1.1)"}, {"value": 1, "name": "Grey (v1.4)"}, {"value": 2, "name": "Mono"}]}
     ],
     "messages": []
   }

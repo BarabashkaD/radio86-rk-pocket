@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_keyboard.v b/fpga/rtl/pocket_keyboard.v
+index cf52fd8..0c5f4fb 100644
+--- a/fpga/rtl/pocket_keyboard.v
++++ b/fpga/rtl/pocket_keyboard.v
+@@ -186,7 +186,7 @@ always @(posedge clk) begin
+         // the chord (wins over the L and R presses above)
+         if (lock && !buttons[8] && !buttons[9]) lock <= 1'b0;
+         if (chord) begin
+-            lock <= 1'b1; l_on <= 1'b0; l_tap <= 1'b0; ctrl_wait <= 1'b0; r_on <= 1'b0; r_pend <= 1'b0;
++            lock <= 1'b1; l_on <= 1'b0; l_tap <= 1'b0; ctrl_wait <= 1'b0; r_on <= 1'b0;
+             panel_open <= !panel_open; nav_on <= 1'b0;
+             if (!panel_open) begin selection <= last_key; col_xq <= k1_centre(last_key); end
+         end

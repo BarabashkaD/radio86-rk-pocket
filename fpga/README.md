@@ -27,8 +27,8 @@ Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the int
 | 0x0000_001C, 0x20, 0x3C | CRC32 of the monitor, the font, the ROM disk |
 | 0x0000_0024 | CPU address (low 16 bits) |
 | 0x0000_0028 | Count of native frames |
-| 0x0000_0034 | Keyboard panel: armed, key valid, panel open, selection, key code |
-| 0x0000_0044 | Mode: bit 0 FX page, 1 RUS, 2 shift, 3 ctrl, 4 Dock keyboard |
+| 0x0000_0034 | Keyboard panel: bit 7 panel open, bits 6:0 selected key id (0..66) |
+| 0x0000_0044 | Keyboard state: bit 0 RUS (`rus_mode`), 1 SS (Shift) line, 2 US (Ctrl) line, 3 RUS line, 4 Shift latch, 5 Dock keyboard |
 | 0x0000_0030, 0x38, 0x40 | Read 0 (the POC's D/Enter injection, game keys and cartridge guard are removed) |
 | 0x0000_0100 | Action (write): 1 Reset, 2 Cold boot; one clock pulse; reads 0 |
 | 0x0000_0104 | Sound, bit 0, default 1 |
@@ -36,12 +36,32 @@ Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the int
 | 0x0000_010C | Keys: 0 Cursor, 1 Digits 7-8-9-6, 2 Digits 8-4-6-2, 3 WASD (writes above 3 are ignored) |
 | 0x0000_0110 | Keys on: 0 D-pad, 1 A B X Y (writes above 1 are ignored) |
 | 0x0000_0114 | Escape: 0 Select, 1 Start, 2 None (writes above 2 are ignored) |
-| 0x0000_0118-0x0000_0144 | Reserved; read 0, writes ignored |
+| 0x0000_0118 | Keyboard colours: 0 Pink (v1.1), 1 Grey (v1.4), 2 Mono (writes above 2 are ignored) |
+| 0x0000_011C-0x0000_0144 | Reserved; read 0, writes ignored |
 | 0x2000_0000, 0x2100_0000, 0x2200_0000 | Data slots 0, 1, 2 (below) |
 | 0x2300_0000 | Reserved: slot 3, tape image |
 | 0xF8xx_xxxx | APF |
 
 The interact registers have no reset. Pocket OS writes the saved values while `reset_n` is low and reads them back every frame; the initial values are the defaults of `package/core/interact.json`.
+
+## On-screen keyboard (K1)
+
+- `rtl/pocket_keyboard.v`: the buttons as keyboard lines. The 64 matrix keys, and SS (Shift), US (Ctrl) and RUS/LAT as separate lines (ids 64..66), are pulled low and ANDed with the mapped keys. It also holds the panel state: open, selection, the Shift latch. Timings (tap, chord window, RUS minimum, minimum hold, auto-repeat) are parameters in milliseconds.
+- `rtl/pocket_k1_panel.v`: draws the 284 x 82 panel in the 12.288 MHz output stage (`pocket_frame_video.v`), 3 clocks of latency; the picture path is delayed to match. It reads the state once per frame (at x = 0, y = 0).
+- `rtl/pocket_k1_layout.vh`: generated key table, labels, small glyphs and palettes. Do not edit it. The single source is `scripts/k1/layout.py`; regenerate with `python -B scripts/k1/gen_verilog.py` (a test checks the file is up to date). The labels come from the monitor's key decoder, run on `BIOS.BIN` by `scripts/k1/monitor_decoder.py`.
+- `rtl/pocket_bus_cdc.v` (+ `.sdc`): a toggle handshake that carries the state word from `clk_74a` to the video clock whole. The constraint cuts the held-word path and the two token paths; the synchronizer stages stay timed.
+- Test model, not RTL (nothing includes it): `rtl/pocket_key_defs.vh`: `native_character`, the model of the monitor's decoder (FF06), checked against all 512 key and modifier cases.
+
+The state bus (78 bits, `clk_74a` to the video clock):
+
+| Bits | Meaning |
+|---|---|
+| 0 | panel open |
+| 7:1 | selected key id |
+| 8 | RUS (`rus_mode`) |
+| 9, 10, 11 | SS (Shift), US (Ctrl), RUS lines pulled |
+| 75:12 | matrix line k pulled, at bit 12+k |
+| 77:76 | palette: 0 Pink, 1 Grey, 2 Mono |
 
 ## Data slots
 
@@ -66,6 +86,14 @@ python -B fpga/sim/run_sim.py --slow               adds the system scenarios
 python -B fpga/sim/run_sim.py --negative           each fault must fail with its named error
 python -B fpga/sim/run_sim.py boot menu            named tests only
 ```
+
+Tests of the keyboard:
+
+- `keyboard`: the buttons, the chord, L and R, navigation and auto-repeat, with five faults.
+- `k1_panel`: the panel in the output stage, 7 states, every pixel compared with the Python model (`scripts/k1/layout.py`).
+- `bus_cdc`: the handshake with random gaps and a destination reset.
+- `k1` (slow, about 40 minutes): the system scenario. It opens the panel, types through it, and captures 7 frames (Shift latch, RUS, Ctrl, three palettes). `python -B scripts/k1/check_frames.py build/sim/k1` compares each panel with the model.
+- `python -B -m unittest scripts/tests/test_k1_layout.py` (needs `IVERILOG`): the key table, the generated file, `native_character` against the monitor's decoder (512 cases) and every `k1_*` function against the model.
 
 The core's machine TB runs on the Pocket memory (`pocket_memory.v`) in place of the core's own model (`--iverilog` is needed when `iverilog` is not on PATH):
 

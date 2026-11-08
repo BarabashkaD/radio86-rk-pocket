@@ -1,13 +1,13 @@
 diff --git a/fpga/rtl/pocket_frame_video.v b/fpga/rtl/pocket_frame_video.v
-index 945943e..84b3837 100644
+index 7a496a9..0bbd021 100644
 --- a/fpga/rtl/pocket_frame_video.v
 +++ b/fpga/rtl/pocket_frame_video.v
-@@ -71,7 +71,7 @@ module pocket_frame_video(
-             rgb<=0;
-             if(de_d) begin
-                 if(error_sync[2])rgb<=24'h600000;
--                else if(display_valid && (display_bank ? q1 : q0))rgb<=green_sync[2] ? 24'h00ff00 : 24'hffffff;
-+                else if(display_valid && (display_bank ? q1 : q0))rgb<=24'hffffff;
+@@ -88,7 +88,7 @@ module pocket_frame_video(
+             if(de_p[D-1]) begin
+                 if(panel_hit)rgb<=panel_rgb;
+                 else if(error_p[D-1])rgb<=24'h600000;
+-                else if(dot_p[D-1])rgb<=green_p[D-1] ? 24'h00ff00 : 24'hffffff;
++                else if(dot_p[D-1])rgb<=24'hffffff;
              end
          end
      end

@@ -28,7 +28,8 @@ class PackageTest(unittest.TestCase):
         self.assertLessEqual(len(variables), 16)
         self.assertLessEqual(sum(len(v['options']) for v in variables if v['type'] == 'list'), 20)
         self.assertEqual([v['name'] for v in variables],
-                         ['Reset', 'Cold boot', 'Sound', 'Text colour', 'Keys', 'Keys on', 'Escape (AR2)'])
+                         ['Reset', 'Cold boot', 'Sound', 'Text colour', 'Keys', 'Keys on', 'Escape (AR2)',
+                          'Keyboard colours'])
         bad = [dict(v) for v in variables]
         bad[0]['id'] = 1
         self.assertTrue(package.check_interact(bad))
