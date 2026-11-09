@@ -3,11 +3,11 @@
     "magic": "APF_VER_1",
     "data_slots": [
       {"name": "Monitor", "id": 0, "required": true, "parameters": 10, "nonvolatile": false, "deferload": false,
-       "filename": "monitor.bin", "extensions": ["bin"], "size_exact": 2048, "size_maximum": 2048, "address": "0x20000000"},
+       "filename": "monitor.bin", "extensions": ["bin"], "size_maximum": 2048, "address": "0x20000000"},
       {"name": "Font", "id": 1, "required": true, "parameters": 10, "nonvolatile": false, "deferload": false,
-       "filename": "font.bin", "extensions": ["bin"], "size_exact": 1024, "size_maximum": 1024, "address": "0x21000000"},
+       "filename": "font.bin", "extensions": ["bin"], "size_maximum": 1024, "address": "0x21000000"},
       {"name": "ROM disk", "id": 2, "required": false, "parameters": 10, "nonvolatile": false, "deferload": false,
-       "filename": "romdisk.bin", "extensions": ["bin"], "size_exact": 32256, "size_maximum": 32256, "address": "0x22000000"}
+       "filename": "romdisk.bin", "extensions": ["bin"], "size_maximum": 32768, "address": "0x22000000"}
     ]
   }
 }

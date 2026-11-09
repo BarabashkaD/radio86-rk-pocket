@@ -12,6 +12,7 @@ text. Outputs: build/sim/<test>[_<fault>]/ (ignored by git). Core sources: RK86_
 (default cores/karabas-go-core-rk86/src), never copied unless a fault patches them.
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -62,9 +63,9 @@ TESTS = {
     'k1_panel': dict(top='tb_k1_panel', inputs=lambda out: k1_panel_inputs(out),
                      files=sim('unit/tb_k1_panel.v') + rtl('pocket_frame_video.v', 'pocket_k1_panel.v'),
                      negatives=[('k1_panel/labels_ignore_sh', 'ERROR: pixel')]),
-    'assets': dict(top='tb_assets', hex=['monitor.hex', 'font.hex', 'cartridge.hex'],
-                   files=sim('unit/tb_assets.v') + rtl('pocket_asset_store.v', 'pocket_boot_assets.v'),
-                   negatives=[('rom_disk_required', 'missing ROM disk must be legal')]),
+    'slot_loader': dict(top='tb_slot_loader', files=sim('unit/tb_slot_loader.v') + rtl('pocket_slot_loader.v', 'pocket_rom8.v'),
+                        negatives=[('slot_loader/size_not_limited', 'byte beyond the size written'),
+                                   ('slot_loader/lane_order', 'byte order')]),
     'memory': dict(top='tb_pocket_memory', files=sim('unit/tb_pocket_memory.v') + rtl('pocket_memory.v'),
                    negatives=[('tag_not_invalidated', 'read after write'),
                               ('window_ignored', 'window: ready without'),
@@ -81,16 +82,27 @@ TESTS = {
 }
 
 
-SYSTEM_RTL = rtl('pocket_asset_store.v', 'pocket_boot_assets.v', 'pocket_interact.v', 'pocket_memory.v',
+SYSTEM_RTL = rtl('pocket_slot_loader.v', 'pocket_rom8.v', 'pocket_interact.v', 'pocket_memory.v',
                  'pocket_cold_clear.v', 'pocket_window.v', 'pocket_remap.v', 'pocket_keyboard.v',
                  'pocket_bus_cdc.v', 'pocket_cart_ppi.v', 'pocket_frame_video.v', 'pocket_k1_panel.v', 'pocket_audio.v',
                  'pocket_pll_watchdog.v', 'radio86rk_pocket.v', 'pocket_system.v')
 
 
-def system(scenario, compare=None):
-    return dict(top='tb_system', slow=True, plusargs=['+scenario=' + scenario], compare=compare,
+def system(scenario, compare=None, cart=None, extra=None):
+    return dict(top='tb_system', slow=True, plusargs=['+scenario=' + scenario], compare=compare, cart=cart, extra=extra,
                 hex=['monitor.hex', 'font.hex', 'cartridge.hex'],
                 files=lambda: sim('system/tb_system.v') + SYSTEM_RTL + core_files())
+
+
+def game_plusargs(disk=9, file='XONIX1.RKR'):
+    path = os.path.join(ROOT, 'build', 'romdisks', 'romdisks.json')
+    if not os.path.exists(path):
+        raise ValueError('%s missing' % path)
+    with open(path, encoding='utf-8') as f:
+        e = next((e for d in json.load(f) if d['disk'] == disk for e in d['entries'] if e['file'] == file), None)
+    if e is None:
+        raise ValueError('entry %s of disk %d not found in %s' % (file, disk, path))
+    return ['+game_key=%d' % ord(e['key']), '+game_ram=%d' % e['ram'], '+game_rom=%d' % e['rom'], '+game_len=%d' % e['length']]
 
 
 TESTS.update({
@@ -102,6 +114,8 @@ TESTS.update({
     'system_watchdog': system('watchdog'),
     'menu': system('menu', ('frame.hex', 'fpga/sim/golden/rom-disk-menu.hex')),
     'xonix': system('xonix'),
+    # local only (slow; the disks are built by scripts/romdisk/build_romdisks.py, not fetched)
+    'game': system('game', cart=lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-9.bin'), extra=game_plusargs),
     'dpddt': system('dpddt'),
     'tetris': system('tetris'),
     'k1': system('k1'),  # writes k1_<n>.hex and k1.log: python -B scripts/k1/check_frames.py build/sim/k1
@@ -109,9 +123,9 @@ TESTS.update({
 })
 
 
-def write_hex(name, out):
+def write_hex(name, out, path=None):
     src, size = HEX[name]
-    path = src()
+    path = path or src()
     with open(path, 'rb') as f:
         data = f.read()
     if len(data) != size:
@@ -151,6 +165,13 @@ def k1_panel_inputs(out):
 
 def run(name, test, iverilog, vvp, env, fault=None):
     out = os.path.join(ROOT, 'build', 'sim', name + ('_' + fault if fault else ''))
+    try:
+        cart = test['cart']() if test.get('cart') else None
+        if cart and not os.path.exists(cart):
+            raise ValueError('%s missing' % cart)
+        extra = test['extra']() if test.get('extra') else []
+    except ValueError as e:
+        return False, 'ERROR: %s: run python -B scripts/romdisk/build_romdisks.py' % e
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     files = test['files']() if callable(test['files']) else list(test['files'])
@@ -170,7 +191,7 @@ def run(name, test, iverilog, vvp, env, fault=None):
         except ValueError as e:
             return False, 'ERROR: fault %s: %s' % (fault, e)
     for h in test.get('hex', []):
-        write_hex(h, out)
+        write_hex(h, out, cart if h == 'cartridge.hex' else None)
     if test.get('inputs'):
         test['inputs'](out)
     exe = os.path.join(out, name + '.vvp')
@@ -179,7 +200,8 @@ def run(name, test, iverilog, vvp, env, fault=None):
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=out, env=env)
     if res.returncode:
         return False, 'ERROR: iverilog: ' + (res.stdout + res.stderr)
-    res = subprocess.run([vvp, '-n', exe] + test.get('plusargs', []), capture_output=True, text=True, cwd=out, env=env)
+    plusargs = test.get('plusargs', []) + extra
+    res = subprocess.run([vvp, '-n', exe] + plusargs, capture_output=True, text=True, cwd=out, env=env)
     text = res.stdout + res.stderr
     lines = [l.strip() for l in text.splitlines()]
     ok = (res.returncode == 0 and any(l.startswith('PASS') for l in lines)

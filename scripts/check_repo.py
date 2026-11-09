@@ -6,9 +6,8 @@ docs/ from public Markdown, no absolute local paths.
 Usage: python -B scripts/check_repo.py      (checks `git ls-files` of this repository; exit 1 on findings)
 The LF and final-newline rule skips the APF template (EXEMPT_PREFIXES: kept byte for byte) and
 allows, for each file in LEGACY, the one defect it has today. Normalising a LEGACY file is a
-separate change the maintainer approves (it touches RTL, the golden frames and the fault patch
-rom_disk_required.patch, which must match its CRLF target byte for byte); remove its entry in that
-change (scripts/tests/test_check_repo.py fails while a fixed or removed file is still listed).
+separate change the maintainer approves (it touches RTL and the golden frames); remove its entry
+in that change (scripts/tests/test_check_repo.py fails while a fixed or removed file is still listed).
 The privacy and docs/ rules apply to every tracked text file outside docs/.
 """
 import os
@@ -22,14 +21,10 @@ EXEMPT_PREFIXES = ('fpga/apf/', 'fpga/core/')   # the APF template files, byte f
 LEGACY = {   # path -> its line-ending defect on 2026-11-08 (pocket-v1 65b1ebf)
     'fpga/quartus/ap_core.qsf': 'CR',
     'fpga/rtl/native_font.vh': 'CR',
-    'fpga/rtl/pocket_asset_store.v': 'CR',
-    'fpga/rtl/pocket_boot_assets.v': 'CR',
     'fpga/rtl/pocket_remap.v': 'CR',
     'fpga/sim/golden/README.md': 'no final newline',
     'fpga/sim/golden/monitor-boot.hex': 'CR',
     'fpga/sim/golden/rom-disk-menu.hex': 'CR',
-    'fpga/sim/negative/rom_disk_required.patch': 'CR',
-    'fpga/sim/unit/tb_cold_clear.v': 'no final newline',
     'scripts/build.ps1': 'no final newline',
     'scripts/check_build.py': 'no final newline',
 }

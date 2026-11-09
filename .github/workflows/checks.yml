@@ -38,10 +38,10 @@ jobs:
       - uses: ./.github/actions/setup-iverilog
       - name: Repository rules
         run: python -B scripts/check_repo.py
-      - name: Unit tests (no skips)
-        run: pwsh -File scripts/ci/unit-tests.ps1
       - name: Fetch and check the assets
         run: python -B scripts/fetch_assets.py
+      - name: Unit tests (no skips)
+        run: pwsh -File scripts/ci/unit-tests.ps1
       - name: Package dry run with a stand-in bitstream
         run: pwsh -File scripts/ci/package-dry-run.ps1
 

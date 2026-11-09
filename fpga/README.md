@@ -25,7 +25,7 @@ flowchart LR
         st["rk86_video_stream<br/>native dot stream<br/>(used by the Pocket only)"]
     end
     subgraph pk["Analogue Pocket: core_top.v, pocket_system, radio86rk_pocket (Cyclone V, Quartus)"]
-        p_ast["pocket_boot_assets<br/>data slots: monitor,<br/>font, ROM disk"]
+        p_ast["pocket_slot_loader<br/>data slots: monitor,<br/>font, ROM disk"]
         p_mem["pocket_memory<br/>RAM in block RAM,<br/>cpu_ready"]
         p_cart["pocket_cart_ppi<br/>ROM disk"]
         p_set["pocket_interact<br/>Core Settings"]
@@ -62,8 +62,8 @@ Side by side:
 | Top | `src/radio86rk.v`, `radio86rk_mini.v`, `radio86rk_minig.v`; XC6SLX25, ISE 14.7 | `core/core_top.v` (APF template: pins, bridge, PLL) with one `pocket_system` (assets, settings, video, audio) around `radio86rk_pocket` (the board); 5CEBA4F23C8, Quartus 25.1std |
 | Machine | `rk86_machine`, `rk86_video` (inside `rk_video`) | the same modules, from the submodule, plus `rk86_video_stream` |
 | Clock | 40 MHz from a PLL (the signal is historically named `clk50`), `ce` = 1 | `clk_74a` (74.25 MHz) with `ce` on 160 of 297 ticks: 40 MHz on average (below) |
-| Memory | external SRAM, `cpu_ready` = 1 | `pocket_memory`: RAM 0000-7FFF in block RAM with a CPU port and a DMA port; `cpu_ready` waits for the monitor and the ROM disk; cleared at the first boot and by Cold boot |
-| Monitor and font | `BIOSSD.BIN` or `BIOS.BIN` (OSD switch "ROM"), written into the SRAM from the core file by the MCU; the font in a Coregen ROM | `BIOS.BIN` (the stock monitor) and `FONT.BIN` from the data slots, checked by size and CRC (`pocket_boot_assets`) |
+| Memory | external SRAM, `cpu_ready` = 1 | `pocket_memory`: RAM 0000-7FFF and the monitor (8000-87FF of the array) in one byte-wide block RAM with one port (the CPU, the DMA while it holds the bus, the loader in reset); `cpu_ready` waits 1 clk for a read and for the ROM disk; the RAM cleared at the first boot and by Cold boot |
+| Monitor and font | `BIOSSD.BIN` or `BIOS.BIN` (OSD switch "ROM"), written into the SRAM from the core file by the MCU; the font in a Coregen ROM | `BIOS.BIN` (the stock monitor) into `pocket_memory` and `FONT.BIN` into its own byte-wide memory (`pocket_rom8`), written byte by byte from the data slots (`pocket_slot_loader`), no checks |
 | Window A000-BFFF | the SD card, used by `BIOSSD.BIN` | the ROM disk behind an 8255 (`pocket_cart_ppi`), as on the real machine |
 | Programs | tape images (`.rkr`, `.rk`, `.gam`) from the SD card through the OSD, written into the memory by `loader.v`; Autorun types the start keys (`macros.v`) | from the ROM disk menu (`R0,1FF,0`, `G0`); slot 3 is reserved for tape images |
 | Keyboard | a USB keyboard and joysticks through the MCU (`hid_parser`, `karabas_keyboard`) | the Pocket buttons (`pocket_remap`, `pocket_keyboard`) and the K1 on-screen keyboard; the Dock USB keyboard is reserved |
@@ -113,8 +113,7 @@ Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the int
 |---|---|
 | 0x0000_0000 | Identity, `0x524B4D31` |
 | 0x0000_0008 | Flags: bit 0 boot done (PLL lock), 1 setup done, 2 `reset_n`, 3 assets valid, 4 memory ready |
-| 0x0000_0014 | Asset status (loading, valid and error bits of monitor, font, ROM disk; `pocket_boot_assets.v`) |
-| 0x0000_001C, 0x20, 0x3C | CRC32 of the monitor, the font, the ROM disk |
+| 0x0000_0014, 0x1C, 0x20, 0x3C | Read 0 (the asset status and the CRC32 values until 0.6.3) |
 | 0x0000_0024 | CPU address (low 16 bits) |
 | 0x0000_0028 | Count of native frames |
 | 0x0000_0034 | Keyboard panel: bit 7 panel open, bits 6:0 selected key id (0..66) |
@@ -159,11 +158,11 @@ From `package/core/data.json`. The sizes are exact.
 
 | Id | Name | File | Address | Size (bytes) | Required |
 |---|---|---|---|---|---|
-| 0 | Monitor | monitor.bin | 0x2000_0000 | 2048 | yes |
-| 1 | Font | font.bin | 0x2100_0000 | 1024 | yes |
-| 2 | ROM disk | romdisk.bin | 0x2200_0000 | 32256 | no |
+| 0 | Monitor | monitor.bin | 0x2000_0000 | up to 2048 | yes |
+| 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes |
+| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 32768 | no |
 
-A missing or bad monitor or font holds the CPU in reset and shows the red diagnostic frame. A missing ROM disk is legal: A000-BFFF reads FF. A ROM disk with another CRC is an error too: the CPU is held in reset and the red frame shows. The sizes and CRCs are in [../package/assets.json](../package/assets.json).
+The files are written as they are, byte by byte (`pocket_slot_loader`); bytes beyond the size APF asked for, and every slot write while the core runs, are dropped. A missing ROM disk is legal: its memory starts at FF, so A000-BFFF reads FF, as do the bytes after a shorter image. A wrong monitor or font runs as it is (no CRC, no red frame). The sizes and CRCs of the bundled files, checked when they are fetched and packaged, are in [../package/assets.json](../package/assets.json).
 
 ## Core Settings size limit
 

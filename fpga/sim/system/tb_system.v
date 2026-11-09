@@ -3,7 +3,7 @@
 // System testbench of the Pocket target (spec 9.4-9.7): pocket_system with the bridge and data
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
-// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|dpddt|tetris|k1|k1_panel
+// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|game|dpddt|tetris|k1|k1_panel
 // +timeout=<clk to wait for the monitor to take a key, default 4000000>
 // Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex;
 // k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
@@ -38,7 +38,7 @@ reg reset_n = 1'b0, request = 1'b0, complete = 1'b0, wr = 1'b0;
 reg [15:0] id = 16'd0;
 reg [31:0] size = 32'd0, address = 32'd0, data = 32'd0;
 reg [31:0] pad = {4'h1, 28'h0};
-wire ack, ok, rd_selected, memory_ready, asset_error, de, hs, vs, skip, dac, lrck;
+wire ack, ok, rd_selected, memory_ready, de, hs, vs, skip, dac, lrck;
 wire [31:0] rd_data;
 wire [23:0] rgb;
 pocket_system sys(.clk_74a(clk), .clk_core_12288(clk_av), .pll_locked(pll_locked), .pll_locked_s(lock_sync[2]),
@@ -47,7 +47,7 @@ pocket_system sys(.clk_74a(clk), .clk_core_12288(clk_av), .pll_locked(pll_locked
     .dataslot_requestwrite(request), .dataslot_requestwrite_id(id), .dataslot_requestwrite_size(size),
     .dataslot_requestwrite_ack(ack), .dataslot_requestwrite_ok(ok), .dataslot_allcomplete(complete),
     .cont1_key(pad), .video_rgb(rgb), .video_de(de), .video_hs(hs), .video_vs(vs), .video_skip(skip),
-    .audio_dac(dac), .audio_lrck(lrck), .memory_ready(memory_ready), .asset_error(asset_error));
+    .audio_dac(dac), .audio_lrck(lrck), .memory_ready(memory_ready));
 
 reg [7:0] monitor [0:2047];
 reg [7:0] font [0:1023];
@@ -99,6 +99,7 @@ always @(posedge clk)
     end
 reg [8*16-1:0] scenario;
 integer timeout, i, guard, n, start_frame;
+integer game_key, game_ram, game_rom, game_len;
 localparam [15:0] B_UP = 16'h0001, B_DOWN = 16'h0002, B_LEFT = 16'h0004, B_RIGHT = 16'h0008, B_A = 16'h0010,
                   B_B = 16'h0020, B_L = 16'h0100, B_R = 16'h0200;
 localparam [6:0] KEY_VK = 7'd10, NO_KEY = 7'd127;    // matrix key ВК; no key
@@ -124,7 +125,7 @@ task slot(input [15:0] slot_id, input [31:0] bytes);
 endtask
 task load(input with_cart);
     begin
-        repeat (20) @(negedge clk);              // the power-up reset of the asset stores
+        repeat (20) @(negedge clk);              // the power-up reset of the slot loader
         slot(0, 2048);
         for (i = 0; i < 512; i = i + 1) bridge_write(32'h2000_0000 + 4*i, {monitor[4*i], monitor[4*i+1], monitor[4*i+2], monitor[4*i+3]});
         slot(1, 1024);
@@ -134,8 +135,11 @@ task load(input with_cart);
             for (i = 0; i < 8064; i = i + 1) bridge_write(32'h2200_0000 + 4*i, {cart[4*i], cart[4*i+1], cart[4*i+2], cart[4*i+3]});
         end
         complete = 1'b1; guard = 0;
-        while (!sys.assets_valid && !asset_error && guard < 200000) begin @(negedge clk); guard = guard + 1; end
-        if (!sys.assets_valid || asset_error) fail("assets not valid");
+        while (!sys.assets_valid && guard < 200000) begin @(negedge clk); guard = guard + 1; end
+        if (!sys.assets_valid) fail("assets not valid");
+        for (i = 0; i < 2048; i = i + 1) if (sys.rk86.mem.ram[32768 + i] !== monitor[i]) fail("the monitor is not in the memory at 8000");
+        for (i = 0; i < 1024; i = i + 1) if (sys.rk86.font_rom.mem[i] !== font[i]) fail("the font is not loaded");
+        if (with_cart) for (i = 0; i < 32256; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart[i]) fail("the ROM disk is not loaded");
     end
 endtask
 task wait_fetch(input [15:0] a, input integer max_frames, input [8*40-1:0] what);
@@ -422,7 +426,7 @@ initial begin
         $display("PASS %0s: assets, persisted interact values, keyboard loop at FE63, frame.hex", scenario);
     end else if (scenario == "nocart") begin
         boot(1'b0, 2'd0);
-        if (sys.cartridge_valid || asset_error) fail("no ROM disk: cartridge_valid or error");
+        if (sys.rk86.romdisk.mem[0] !== 8'hFF || sys.rk86.romdisk.mem[32767] !== 8'hFF) fail("no ROM disk: its memory is not FF");
         if (sys.rk86.ext_di !== 8'hFF) fail("no ROM disk: the window does not read FF");
         $display("PASS nocart: monitor without ROM disk, A000-BFFF reads FF");
     end else if (scenario == "reset") begin
@@ -495,6 +499,19 @@ initial begin
         pad = {4'h1, 28'h0};
         if (n == 0) fail("TETRIS never scanned row 2");
         $display("PASS tetris: started at 3000, D-pad Left = 7 with the Digits 7-8-9-6 preset");
+    end else if (scenario == "game") begin
+        if (!$value$plusargs("game_key=%d", game_key) || !$value$plusargs("game_ram=%d", game_ram) ||
+            !$value$plusargs("game_rom=%d", game_rom) || !$value$plusargs("game_len=%d", game_len)) fail("game: plusargs");
+        boot(1'b1, 2'd0); to_menu; type_char(game_key[7:0]);
+        wait_fetch(game_ram[15:0], 60, "the game did not start at its load address");
+        check_ram(game_ram, game_rom, game_len, "the game image differs at its start");
+        n = 0; start_frame = frames;
+        while (frames < start_frame + 3) begin
+            @(posedge clk);
+            if (sys.rk86.cpu_rd && sys.rk86.cpu_a >= game_ram && sys.rk86.cpu_a < game_ram + game_len) n = n + 1;
+        end
+        if (n < 1000) fail("the game does not run");
+        $display("PASS game: menu key %0s, copied to %h, started there and running", game_key[7:0], game_ram[15:0]);
     end else if (scenario == "k1") begin
         k1_log = $fopen("k1.log", "w");
         if (k1_line(K1_G) != 7'd39 || k1_line(K1_R) != 7'd50 || k1_line(K1_K) != 7'd43 || k1_line(K1_8) != 7'd24)

@@ -315,11 +315,11 @@ assign vpll_feed = 1'bZ;
     
 // bridge host commands
 // synchronous to clk_74a
-wire memory_ready,asset_error;
+wire memory_ready;
 wire pll_core_locked, pll_core_locked_s;
 wire dataslot_allcomplete;
     wire            status_boot_done = pll_core_locked_s; 
-    wire            status_setup_done = pll_core_locked_s && dataslot_allcomplete && (memory_ready || asset_error) && !reset_n; // Idle until Reset Exit; Running has a separate status
+    wire            status_setup_done = pll_core_locked_s && dataslot_allcomplete && memory_ready && !reset_n; // Idle until Reset Exit; Running has a separate status
     wire            status_running = reset_n; // we are running as soon as reset_n goes high
 
     wire            dataslot_requestread;
@@ -534,7 +534,7 @@ pocket_system sys(.clk_74a(clk_74a), .clk_core_12288(clk_core_12288),
     .dataslot_requestwrite_ok(dataslot_requestwrite_ok), .dataslot_allcomplete(dataslot_allcomplete),
     .cont1_key(cont1_key), .video_rgb(video_rgb), .video_de(video_de), .video_hs(video_hs), .video_vs(video_vs),
     .video_skip(video_skip), .audio_dac(audio_dac), .audio_lrck(audio_lrck),
-    .memory_ready(memory_ready), .asset_error(asset_error));
+    .memory_ready(memory_ready));
 always @* begin
     bridge_rd_data = 32'h0;
     if (system_rd_selected) bridge_rd_data = system_rd_data;
