@@ -21,7 +21,7 @@ The latest version is [0.6.2](https://github.com/BarabashkaD/radio86-rk-pocket/r
 ## Features
 
 - The Radio-86RK machine of the Karabas core: CPU, DMA, CRT controller, PPI, the monitor and the font. The CPU runs at 1.43 MHz, as on the Karabas boards; the original ran at about 1.78 MHz ([How the clocks work](fpga/README.md#how-the-clocks-work)).
-- The ROM disk with its menu of programs (included in the package), or any other ROM disk image of up to 32768 bytes, such as the 9 game disks built from the games of the Karabas core ([Game disks](#game-disks)).
+- The ROM disk with its menu of programs and the 9 game disks with the 48 games of the Karabas core ([Game disks](#game-disks)), both included in the package; or any other ROM disk image of up to 32768 bytes. Another ROM disk can be loaded from the core's menu while the core runs.
 - The on-screen keyboard (L+R): the 67 real keys, LAT and RUS layouts, Shift and Ctrl, three colour palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or on A B X Y.
 - Beeper sound at 48 kHz, text colour, Reset (keeps memory) and Cold boot in Core Settings.
@@ -34,7 +34,9 @@ The latest version is [0.6.2](https://github.com/BarabashkaD/radio86-rk-pocket/r
 2. Upgrading from 0.5.x: first delete `Settings/BarabashkaD.Radio86RK/` on the SD card (the Core Settings changed).
 3. Unzip it onto the root of the Pocket's SD card. It adds `Cores/BarabashkaD.Radio86RK/`, `Assets/radio86rk/BarabashkaD.Radio86RK/`, `Platforms/radio86rk.json` and `Platforms/_images/radio86rk.bin`. The core appears in the Pocket menu as "Radio-86RK" (category Computer).
 
-The monitor (`monitor.bin`) and the font (`font.bin`) in the Assets folder are required. The zip also includes the ROM disk (`romdisk.bin`, GPL-3.0, see [LICENSES.md](LICENSES.md)). It is optional: without it, the window A000-BFFF reads FF. The files are loaded as they are, with no checks: a monitor of up to 2048 bytes, a font of up to 1024 bytes and a ROM disk image of up to 32768 bytes are accepted under their names, for example one of the game disks built by `scripts/romdisk/build_romdisks.py` as `romdisk.bin`. A wrong file just runs as it is, as on the original computer: put the right file back and start the core again.
+The monitor (`monitor.bin`) and the font (`font.bin`) in the Assets folder are required. The zip also includes the ROM disk (`romdisk.bin`, GPL-3.0) and the 9 game disks (`romdisk-1.bin` to `romdisk-9.bin`), see [LICENSES.md](LICENSES.md). The ROM disk is optional: without it, the window A000-BFFF reads FF. The files are loaded as they are, with no checks: a monitor of up to 2048 bytes, a font of up to 1024 bytes and a ROM disk image of up to 32768 bytes are accepted under their names, for example one of the game disks copied as `romdisk.bin`. A wrong file just runs as it is, as on the original computer: put the right file back and start the core again.
+
+The ROM disk can be changed without leaving the core: in the core's menu, load the ROM disk slot again and pick any `.bin` file of up to 32768 bytes in `Assets/radio86rk/BarabashkaD.Radio86RK/`. The Pocket holds the machine in reset while it loads the file, then the machine restarts as after Core Settings > Reset (the RAM is kept). At the next start the core loads `romdisk.bin` again. `romdisks.txt` in the same folder repeats these steps and lists the programs of each ROM disk in the package.
 
 ## Building from source
 
@@ -63,11 +65,10 @@ The picture is the reference frame of the `menu` test of the system simulation (
 
 ## Game disks
 
-`scripts/romdisk/build_romdisks.py` builds the 48 game tape images of the Karabas core (`cores/karabas-go-core-rk86/pk`) into 9 ROM disks: `build/romdisks/romdisk-1.bin` to `romdisk-9.bin`, 32256 bytes each, and `build/romdisks/romdisks.txt`, the list of their keys, games and titles. Each disk starts with a menu loader made from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). The game disks are not in the release zip.
+The package includes 9 game disks with the 48 game tape images of the Karabas core (`cores/karabas-go-core-rk86/pk`): `romdisk-1.bin` to `romdisk-9.bin` in `Assets/radio86rk/BarabashkaD.Radio86RK/`, 32256 bytes each, next to `romdisk.bin`. `romdisks.txt` in the same folder lists the keys, games and titles of each disk, and the core's info on the Pocket lists the keys and games. Each disk starts with a menu loader made from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `scripts/package.py` builds them with `scripts/romdisk/build_romdisks.py`, which can also build them alone (`python -B scripts/romdisk/build_romdisks.py`, into `build/romdisks`).
 
-1. Run `python -B scripts/romdisk/build_romdisks.py`.
-2. On the SD card, keep `Assets/radio86rk/BarabashkaD.Radio86RK/romdisk.bin` under another name, then copy a game disk there as `romdisk.bin`.
-3. Start the core and type `R0,1FF,0` and `G0` as above. The menu `ROM-DISK/32K GAMES <n>/9` lists the games with the keys `0` to `9`, then letters `A` to `Y` for the entries after the tenth (disk 9 uses `A`, `B`, `C`); `Z` clears the memory 0000-73FF. To choose another game, use Core Settings > Reset, then type `R0,1FF,0` and `G0` again. `G7416` alone shows the menu again too, unless the game has overwritten the loader at 7400-75FF.
+1. Load a game disk from the core's menu while the core runs (see [Install](#install)). To start the core with one of them, keep `romdisk.bin` under another name and copy the game disk there as `romdisk.bin`.
+2. Type `R0,1FF,0` and `G0` as above. The menu `ROM-DISK/32K GAMES <n>/9` lists the games with the keys `0` to `9`, then letters `A` to `Y` for the entries after the tenth (disk 9 uses `A`, `B`, `C`); `Z` clears the memory 0000-73FF. To choose another game, use Core Settings > Reset, then type `R0,1FF,0` and `G0` again. `G7416` alone shows the menu again too, unless the game has overwritten the loader at 7400-75FF.
 
 Tape images do not record where a program starts: each game is started at its load address, as the menu loader does for every entry. A game that needs another start address does not start this way.
 
@@ -99,4 +100,6 @@ From the core's `info.txt`:
 - Core Settings: Reset keeps memory, Cold boot clears it; Sound; Text colour.
 - ROM disk: type `R0,1FF,0` then CR, then `G0` then CR for its menu.
 - ROM disk items 3 (DP/DDT) and 4 (Xonix) overwrite the menu loader, as on the real machine; use Reset.
+- Another ROM disk (.bin, up to 32768 bytes) can be loaded from the core's menu; the machine restarts, memory kept.
+- How to change the ROM disk and the programs of each disk: romdisks.txt in Assets/radio86rk/BarabashkaD.Radio86RK.
 - No Memories (savestates) and no sleep.

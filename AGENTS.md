@@ -42,8 +42,10 @@ Layout:
 | 2 | `romdisk.bin` | 32256 | skiselev/radio-86rk `Software/rom_disk.bin` at commit `c5e9cb7` | no (any image of up to 32768 bytes; no checks) |
 
   - The core loads the files as they are, byte by byte (`pocket_slot_loader`; no CRC since 0.7.0). The CRC32 and SHA256 in `assets.json` check the files when they are fetched and packaged.
+  - The ROM disk slot is reloadable from the core's menu (`data.json` `parameters` 75 = 1 user-reloadable + 2 core-specific + 8 read-only + 64 core reset while loading; the monitor and the font keep 10). The loader takes it during that reset. Run on a Pocket by the maintainer (2026-11-09).
   - `scripts/fetch_assets.py` downloads the ROM disk and its GPL-3.0 licence into `build/assets` and checks size, CRC32 and SHA256; it also fetches Kiselev's loader source `rom_loader.asm` (`sources` in `assets.json`, checked by SHA256) for `scripts/tests/test_romdisk.py`. The ROM disk is never committed.
-  - The game disks: `scripts/romdisk/build_romdisks.py` builds the 48 tape images of the core's `pk/` into `build/romdisks/romdisk-1.bin` to `romdisk-9.bin` (32256 bytes each, a fixed table `DISKS`) with the games menu loader `scripts/romdisk/rom_loader_games.asm` (GPL-3.0, from Kiselev's); `romdisks.json` and `romdisks.txt` list the entries. Not committed, not packaged.
+  - The game disks: `scripts/romdisk/build_romdisks.py` builds the 48 tape images of the core's `pk/` into `build/romdisks/romdisk-1.bin` to `romdisk-9.bin` (32256 bytes each, a fixed table `DISKS`) with the games menu loader `scripts/romdisk/rom_loader_games.asm` (GPL-3.0, from Kiselev's); `romdisks.json` (with the titles of `DESCRIPT.ION`) and `romdisks.txt` list the entries. Not committed. `package.py` builds the same disks from `pk/` (`build_romdisks.build`, `metadata`) and puts them in every package next to Kiselev's `romdisk.bin`; its `info.txt` also lists the games of each disk by menu key and name.
+  - `package/romdisks.txt` is the template of `romdisks.txt` in the package's Assets folder: how to run and change the ROM disk, the programs of `romdisk.bin`; `package.py` replaces its `@GAME_DISKS@` line by the games of each game disk.
   - The font is also compiled into the bitstream as `fpga/rtl/native_font.vh` (the K1 panel draws with it, not with slot 1).
 - **Licences**: `LICENSES.md` (one row per part). Our code is BSD-3-Clause; the core is modified BSD; template files keep the Analogue notices; the ROM disk is GPL-3.0 with unestablished provenance of the programs inside.
 
@@ -75,7 +77,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 - **Git**: commit or push only when the maintainer asks; never rewrite published history.
 - **Releases and the openFPGA library**: once the core is listed in the openFPGA library, the library's updater picks up every GitHub release with a `.zip` asset within about 30 minutes (it ignores the pre-release flag) and the updater tools offer it to users. Create releases as drafts, check them, then publish; never publish a test build as a release. The updater finds a core's files by `author.shortname` from core.json, and a bad `date_release` or an empty `platform_ids` breaks the library's shared update job, so `package.py` checks both before it writes PASS.
 - **Privacy and portability**: no environment-specific values in committed files (no absolute local paths, host or user names, emails); paths relative to the repo or from env vars. The scripts already resolve paths from their own location.
-- **Test tiers** (section 6, "Test tiers"): run the **quick** tier for every commit, the **standard** tier after an RTL change (only the system scenarios of the changed modules), and the **full** tier once before a push, when all fixes and features of the push are done. The **release** tier (the ROM disk scenarios) runs before a package goes to the Pocket, and only its scenarios that the change touches. Choose the tests by the files the change touches, not by habit; a docs-only change needs only `check_repo.py`. Long system scenarios: at most two at once, each in its own `run_sim.py` call (each writes only its own `build/sim/<name>/`), never the same scenario twice at once; stop at the first failure.
+- **Test tiers** (section 6, "Test tiers"): run the **quick** tier for every commit; the **sanity** test, which is only the boot-to-prompt scenario `boot`, as the first system check after an RTL, TB or core-pin change; the **standard** tier after an RTL change (sanity plus only the other system scenarios of the changed modules); and the **full** tier once before a push, when all fixes and features of the push are done. The **release** tier (the ROM disk scenarios) runs before a package goes to the Pocket, and only its scenarios that the change touches. Choose the tests by the files the change touches, not by habit; a docs-only change needs only `check_repo.py`. Long system scenarios: at most two at once, each in its own `run_sim.py` call (each writes only its own `build/sim/<name>/`), never the same scenario twice at once; stop at the first failure.
 
 ## 5. Sources
 
@@ -128,8 +130,8 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 | `romdisk/asm8080.py` | a two-pass Intel 8080 assembler (the syntax of Kiselev's `rom_loader.asm`) |
 | `romdisk/rom_loader_games.asm`, `romdisk/loader.py` | the games menu loader (GPL-3.0; keys 0-9 then A-Y, Z clears RAM) and `games_loader()`, which fills in its table and menu |
 | `romdisk/emu8080.py` | a small 8080 emulator with the monitor's PRINT, GETCH and ROM disk copy stubbed: runs a ROM disk menu for the tests |
-| `romdisk/build_romdisks.py` | builds the 9 game disks into `build/romdisks` (`--pk`, `--out`) |
-| `package.py` | SD package and zip from a Quartus build; checks openFPGA field limits and the interact limit; bit-reverses the RBF; draws icon and platform image |
+| `romdisk/build_romdisks.py` | builds the 9 game disks into `build/romdisks` (`--pk`, `--out`); `build()` and `metadata()` are also used by `package.py` |
+| `package.py` | SD package and zip from a Quartus build; checks openFPGA field limits and the interact limit; bit-reverses the RBF; draws icon and platform image; builds the 9 game disks from the core's `pk/` into the Assets folder, writes `romdisks.txt` there and lists the games in `info.txt` |
 | `k1/layout.py` | single source of the K1 key table, labels, navigation and the golden panel model `render_panel` |
 | `k1/gen_verilog.py` | writes `fpga/rtl/pocket_k1_layout.vh` (`--out PATH`) |
 | `k1/monitor_decoder.py` | runs the monitor's keyboard decoder (FE72) from `BIOS.BIN` in a minimal 8080 model; prints the 64 x 8 table |
@@ -138,7 +140,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 | `check_repo.py` | repository rules on the tracked files: LF, final newline, no links into `docs/`, no absolute local paths (`EXEMPT_PREFIXES`, `LEGACY`: the line-ending exceptions) |
 | `ci/unit-tests.ps1` | the Python unit tests as in CI; a skipped test fails |
 | `ci/package-dry-run.ps1` | `package.py` with a stand-in bitstream in a temp folder, as in CI |
-| `tests/test_package.py` | packaging and definition limits |
+| `tests/test_package.py` | packaging and definition limits; `romdisks.txt` and the `info.txt` game list, the game disks built from the core |
 | `tests/test_k1_layout.py` | key table, decoder, generated file up to date, Verilog functions vs model (needs iverilog) |
 | `tests/test_check_repo.py` | its tests; fails while a fixed file is still in `LEGACY` |
 | `tests/test_core_machine_subset.py` | the CI machine subset still matches the pinned core runner |
@@ -146,7 +148,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 
 ### `package/`
 
-`core/core.json` (version and date are filled in by `package.py`), `data.json` (slots), `interact.json` (Core Settings), `input.json`, `video.json` (408 x 300, 34:25), `audio.json`, `variants.json`, `updaters.json` (`declare_ai`, for the openFPGA library), `info.txt` (shown on the Pocket), `platform/radio86rk.json`, `assets.json`.
+`core/core.json` (version and date are filled in by `package.py`), `data.json` (slots), `interact.json` (Core Settings), `input.json`, `video.json` (408 x 300, 34:25), `audio.json`, `variants.json`, `updaters.json` (`declare_ai`, for the openFPGA library), `info.txt` (shown on the Pocket), `platform/radio86rk.json`, `assets.json`, `romdisks.txt` (the template of the Assets folder's guide to the ROM disks).
 
 ## 6. Build, test, run
 
@@ -186,7 +188,8 @@ Choose by the files the change touches (`git diff --name-only <base>...HEAD` plu
 | Tier | When | Tests | Time |
 |---|---|---|---|
 | quick | every commit | `check_repo.py`; the Python tests whose scripts or data changed (`scripts/ci/unit-tests.ps1` runs all of them); `run_sim.py --negative <unit TBs whose files or fault patches changed>` (all unit TBs: 3.6 min) | 1-5 min |
-| standard | after an RTL or TB change | quick, plus the system scenarios of the changed modules (table below; at most two at once, one per `run_sim.py` call), plus `run_core_machine.py` (7 min) after a change of `pocket_memory.v` or `fpga/sim/memory/`, the package dry run after a change of `package/` or the package scripts, and a Quartus build after a change of `fpga/core/`, `fpga/apf/`, `fpga/quartus/` or an `.sdc` file | 10-90 min |
+| sanity | first system check after an RTL, TB or core-pin change | the boot-to-prompt test only: `run_sim.py boot` (the slots loaded over the bridge, the cold clear, the monitor to its keyboard loop FE63 with the prompt on the screen, the frame compared with `golden/monitor-boot.hex`) | about 6 min |
+| standard | after an RTL or TB change | quick and sanity, plus the other system scenarios of the changed modules (table below; at most two at once, one per `run_sim.py` call), plus `run_core_machine.py` (7 min) after a change of `pocket_memory.v` or `fpga/sim/memory/`, the package dry run after a change of `package/` or the package scripts, and a Quartus build after a change of `fpga/core/`, `fpga/apf/`, `fpga/quartus/` or an `.sdc` file | 10-90 min |
 | full | once before a push | every unit TB with faults, `unit-tests.ps1`, the system scenarios `boot`, `powerup`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel` (then `check_frames.py --expect 3`) and `k1` (then `check_frames.py`), the full machine command below (29 min), `package-dry-run.ps1`, `build.ps1` with `check_build.py` | about 2.7 h |
 | release | before a package goes to the Pocket | full, plus the ROM disk scenarios the change touches (`menu` 57 min; `xonix`, `dpddt`, `tetris`; `game` 1.5 h, after `build_romdisks.py`), then `package.py` on the real build | up to +7 h |
 
@@ -247,7 +250,7 @@ python -B scripts/fetch_assets.py
 python -B scripts/package.py --version <version> --date <YYYY-MM-DD> [--build build/quartus] [--assets build/assets] [--output build/package]
 ```
 
-Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<date>.zip` with `Cores/BarabashkaD.Radio86RK/` (bitstream, json incl. `updaters.json`, `info.txt`, icon, licences, `APF-NOTICE.txt`), `Assets/radio86rk/BarabashkaD.Radio86RK/` (the three assets) and `Platforms/` (`radio86rk.json`, `_images/radio86rk.bin`). Every asset is checked against `assets.json`. Then the zip is checked as the openFPGA library's updater reads it (`check_library_zip`).
+Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<date>.zip` with `Cores/BarabashkaD.Radio86RK/` (bitstream, json incl. `updaters.json`, `info.txt`, icon, licences, `APF-NOTICE.txt`), `Assets/radio86rk/BarabashkaD.Radio86RK/` (the three assets, the 9 game disks `romdisk-1.bin` to `romdisk-9.bin` and `romdisks.txt`) and `Platforms/` (`radio86rk.json`, `_images/radio86rk.bin`). Every asset is checked against `assets.json`. Then the zip is checked as the openFPGA library's updater reads it (`check_library_zip`).
 
 Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in bitstream into `build/ci-local/tmp/`, as in CI; never publish that zip).
 
@@ -271,11 +274,11 @@ Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in
 
 Unzip the package onto the root of the Pocket's SD card. The core appears as "Radio-86RK". Monitor and font are required in the Assets folder; the ROM disk is optional, and the files are loaded as they are, with no checks (a ROM disk image of up to 32768 bytes). Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` first. Hardware runs are the maintainer's.
 
-## 7. Features (0.7.0)
+## 7. Features (0.7.1)
 
 - The Karabas core's Radio-86RK machine at the Karabas speed: `clk_74a` (74.25 MHz) with a clock enable on 160 of 297 ticks = 40 MHz average timebase; CPU about 1.43 MHz (40 / 28).
 - Monitor and font from data slots, loaded byte by byte as they are (no checks): the monitor into the machine's memory array at 8000-87FF (read at E000-FFFF), the font into its own memory, read only by the video.
-- ROM disk behind an 8255 in A000-BFFF (optional; absent: reads FF; any image of up to 32768 bytes). Menu via `R0,1FF,0` and `G0`. Nine game disks can be built from the core's `pk/` (section 2).
+- ROM disk behind an 8255 in A000-BFFF (optional; absent: reads FF; any image of up to 32768 bytes). Another disk can be loaded from the core's menu while the core runs; the machine restarts with the RAM kept. Menu via `R0,1FF,0` and `G0`. Nine game disks can be built from the core's `pk/` (section 2).
 - K1 on-screen keyboard (L+R): the 67 real keys, one label per key from the monitor's own decoder, LAT/RUS, Shift latch (L tap), Ctrl (L held), RUS/LAT (R), palettes Pink (v1.1), Grey (v1.4), Mono.
 - Button presets with the panel closed: Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y), Escape (Select, Start, None).
 - Core Settings: Reset (RAM kept), Cold boot (RAM cleared), Sound, Text colour (white/green), Keyboard colours.
