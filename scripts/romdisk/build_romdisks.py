@@ -4,7 +4,8 @@ Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR]
   --pk   directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
   --out  output directory (default build/romdisks)
 
-Writes romdisk-<n>.bin (n = 1..9), romdisks.json and romdisks.txt.
+Writes romdisk-<n>.bin (n = 1..9), romdisks.json (with each game's title from the pk
+directory's DESCRIPT.ION, or '') and romdisks.txt.
 
 Rules: DISKS is a fixed table (menu order = the file name order). Every
 .GAM/.RKR/.RK file of the pk directory except bios.rk is in exactly one disk and
@@ -15,7 +16,8 @@ The payloads start at offset 0200H in menu order, behind the games loader
 A payload ending beyond 7E00H, or a RAM range overlapping 7400H-75FFH (the loader)
 or passing FFFFH, is an error.
 
-The output is never committed and not packaged.
+The output is never committed. scripts/package.py builds the same disks itself (build, metadata)
+and puts them in the package next to Kiselev's romdisk.bin.
 """
 import argparse
 import json
@@ -134,6 +136,13 @@ def descriptions(pk_dir):
     return result
 
 
+def metadata(disks, desc):
+    """The romdisks.json list: per disk its file name and entries, each with its title (or '')."""
+    return [{'disk': d['disk'], 'file': 'romdisk-%d.bin' % d['disk'],
+             'entries': [dict(e, title=desc.get(e['file'].upper(), '')) for e in d['entries']]}
+            for d in disks]
+
+
 def write_text(path, text):
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(text)
@@ -148,12 +157,11 @@ def main():
     disks = build(args.pk)
     desc = descriptions(args.pk)
     os.makedirs(args.out, exist_ok=True)
-    listing, meta = [], []
-    for d in disks:
-        fname = 'romdisk-%d.bin' % d['disk']
+    listing, meta = [], metadata(disks, desc)
+    for d, m in zip(disks, meta):
+        fname = m['file']
         with open(os.path.join(args.out, fname), 'wb') as f:
             f.write(d['image'])
-        meta.append({'disk': d['disk'], 'file': fname, 'entries': d['entries']})
         listing.append('Disk %d (%s)' % (d['disk'], fname))
         for e in d['entries']:
             line = '  %s  %-12s %-12s %04X-%04X' % (e['key'], e['name'], e['file'], e['ram'],

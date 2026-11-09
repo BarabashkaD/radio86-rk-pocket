@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 (2026-11-09)
+
+Run on a Pocket by the maintainer (2026-11-09), with the game disks. The RTL is that of 0.7.0.
+
+- The ROM disk can be reloaded from the core's menu: `data.json` slot 2 `parameters` 75 (user-reloadable, core-specific, read-only, core held in reset while loading; was 10). The loader takes the new file during that reset and the machine restarts with the RAM kept.
+- The package has `romdisks.txt` in its Assets folder (template `package/romdisks.txt`): how to run a program from the ROM disk and how to change the disk, the programs of `romdisk.bin`, and the games of each game disk. `build_romdisks.py` writes each game's title into `romdisks.json`. `info.txt` points to the file and lists the games of each disk by menu key and name, so the list can be read on the Pocket.
+- The 9 game disks are in the package, next to Kiselev's `romdisk.bin`: `package.py` builds `romdisk-1.bin` to `romdisk-9.bin` from the Karabas core's `pk/` at every run (no `--romdisks` option, no `_games` zip). LICENSES.md: the game disks are shipped; the provenance of the games stays open.
+- Docs: the data slot table in fpga/README.md gives the sizes as maximums and the parameters of each slot.
+
 ## 0.7.0 (2026-11-09)
 
 Run on a Pocket by the maintainer (2026-11-09). Includes 0.6.3, which was not released on its own.

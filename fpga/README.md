@@ -154,15 +154,15 @@ The state bus (78 bits, `clk_74a` to the video clock):
 
 ## Data slots
 
-From `package/core/data.json`. The sizes are exact.
+From `package/core/data.json`. The sizes are maximums (`size_maximum`).
 
-| Id | Name | File | Address | Size (bytes) | Required |
-|---|---|---|---|---|---|
-| 0 | Monitor | monitor.bin | 0x2000_0000 | up to 2048 | yes |
-| 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes |
-| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 32768 | no |
+| Id | Name | File | Address | Size (bytes) | Required | Parameters |
+|---|---|---|---|---|---|---|
+| 0 | Monitor | monitor.bin | 0x2000_0000 | up to 2048 | yes | 10: core-specific, read-only |
+| 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes | 10: core-specific, read-only |
+| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 32768 | no | 75: also user-reloadable, core reset while loading |
 
-The files are written as they are, byte by byte (`pocket_slot_loader`); bytes beyond the size APF asked for, and every slot write while the core runs, are dropped. A missing ROM disk is legal: its memory starts at FF, so A000-BFFF reads FF, as do the bytes after a shorter image. A wrong monitor or font runs as it is (no CRC, no red frame). The sizes and CRCs of the bundled files, checked when they are fetched and packaged, are in [../package/assets.json](../package/assets.json).
+The files are written as they are, byte by byte (`pocket_slot_loader`); bytes beyond the size APF asked for, and every slot write while the core runs, are dropped. The ROM disk can be reloaded from the core's menu: APF holds the core in reset (Reset Enter), writes the new file, and the machine restarts at Reset Exit with the RAM kept (`pocket_cold_clear` runs only at the first boot and on Cold boot). A missing ROM disk is legal: its memory starts at FF, so A000-BFFF reads FF, as do the bytes after a shorter image. A wrong monitor or font runs as it is (no CRC, no red frame). The sizes and CRCs of the bundled files, checked when they are fetched and packaged, are in [../package/assets.json](../package/assets.json).
 
 ## Core Settings size limit
 

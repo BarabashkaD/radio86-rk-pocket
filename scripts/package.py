@@ -6,6 +6,10 @@ Usage: python -B scripts/package.py --version 0.5.0 --date YYYY-MM-DD [--build b
 Checks the definitions against the openFPGA limits, bit-reverses the RBF (round trip checked),
 checks every shipped asset against package/assets.json, draws the icon and platform image,
 writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip, then checks the zip as the openFPGA library's updater reads it.
+The Assets folder also gets the 9 game disks romdisk-1.bin to romdisk-9.bin, built from the core's
+pk/ folder by scripts/romdisk/build_romdisks.py, next to Kiselev's romdisk.bin, and romdisks.txt
+(package/romdisks.txt: how to run and change the ROM disk, the programs of romdisk.bin, the games
+of each game disk). info.txt (shown on the Pocket) also lists the games by menu key and name.
 """
 import argparse
 import datetime
@@ -23,6 +27,9 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 CORE_ID = 'BarabashkaD.Radio86RK'
 PLATFORM = 'radio86rk'
 CORE_SRC = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
+PK_DIR = os.path.join(os.path.dirname(CORE_SRC), 'pk')     # the core's game tape images
+sys.path.insert(0, os.path.join(ROOT, 'scripts', 'romdisk'))
+import build_romdisks  # noqa: E402
 GLYPHS = {
     'R': ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
     'K': ['10001', '10010', '10100', '11000', '10100', '10010', '10001'],
@@ -229,6 +236,60 @@ def check_library_zip(zip_path):
     return errors
 
 
+GUIDE_MARKER = '@GAME_DISKS@'
+ROMDISK_MAX = 32768                 # data.json size_maximum of the ROM disk slot
+
+
+def romdisk_guide(template, disks):
+    """romdisks.txt of the Assets folder: the template with its marker line replaced by the game
+    disks (the romdisks.json list of build_romdisks.py)."""
+    if template.count(GUIDE_MARKER) != 1:
+        raise ValueError('package/romdisks.txt needs exactly one %s line' % GUIDE_MARKER)
+    games = sum(len(d['entries']) for d in disks)
+    lines = ['Game disks: the %d games of the Karabas core on %d disks' % (games, len(disks)),
+             'Load one from the Pocket menu as above, then type R0,1FF,0 and G0: its menu lists the',
+             'games with the keys 0 to 9, then A to Y; Z clears the memory 0000-73FF. To choose',
+             'another game, use Core Settings > Reset, then R0,1FF,0 and G0 again; G7416 alone shows',
+             'the menu again too, unless the game has overwritten the loader at 7400-75FF.']
+    for d in disks:
+        lines += ['', '%s (disk %d)' % (d['file'], d['disk'])]
+        for e in d['entries']:
+            title = e.get('title', '')
+            lines.append(('  %s  %-12s %s' % (e['key'], e['name'], title)).rstrip())
+    return template.replace(GUIDE_MARKER, '\n'.join(lines))
+
+
+def info_with_games(info, disks):
+    """info.txt (shown on the Pocket) with the menu keys and names of the game disks before its
+    Credits line; ASCII only (the titles, in Russian, stay in romdisks.txt)."""
+    lines = info.split('\n')
+    credits = [i for i, line in enumerate(lines) if line.startswith('Credits:')]
+    if len(credits) != 1:
+        raise ValueError('package/core/info.txt needs exactly one Credits: line')
+    games = sum(len(d['entries']) for d in disks)
+    add = ["* Game disks (%d games): load one from the core's menu, then R0,1FF,0 and G0; "
+           "its menu keys:" % games]
+    for d in disks:
+        add.append('* %s: %s' % (d['file'], ', '.join('%s %s' % (e['key'], e['name']) for e in d['entries'])))
+    return '\n'.join(lines[:credits[0]] + add + lines[credits[0]:])
+
+
+def game_disks(pk_dir, reserved):
+    """The 9 game disks built from the core's tape images by build_romdisks.py:
+    (the romdisks.json list, {file name: bytes}). A name of another asset is an error."""
+    try:
+        built = build_romdisks.build(pk_dir)
+    except (OSError, ValueError) as e:
+        raise SystemExit('ERROR: game disks: %s' % e)
+    disks = build_romdisks.metadata(built, build_romdisks.descriptions(pk_dir))
+    files = {}
+    for d, b in zip(disks, built):
+        if d['file'] in reserved or not 0 < len(b['image']) <= ROMDISK_MAX:
+            raise SystemExit('ERROR: game disk %s (%d bytes)' % (d['file'], len(b['image'])))
+        files[d['file']] = b['image']
+    return disks, files
+
+
 def asset_bytes(asset, assets_dir):
     """core:src/<path> comes from the core submodule, everything else from build/assets."""
     src = asset['source']
@@ -274,7 +335,6 @@ def main():
     with open(os.path.join(core_dir, 'core.json'), 'w', encoding='utf-8', newline='\n') as f:
         json.dump(core, f, indent=2)
         f.write('\n')
-    shutil.copyfile(os.path.join(pkg, 'core', 'info.txt'), os.path.join(core_dir, 'info.txt'))
     raw = open(os.path.join(a.build, 'output_files', 'ap_core.rbf'), 'rb').read()
     rev = reverse_bits(raw)
     if reverse_bits(rev) != raw:
@@ -287,6 +347,17 @@ def main():
     table = json.load(open(os.path.join(pkg, 'assets.json'), encoding='utf-8'))
     for asset in table['assets']:
         open(os.path.join(asset_dir, asset['name']), 'wb').write(asset_bytes(asset, a.assets))
+    disks, disk_files = game_disks(PK_DIR, {x['name'] for x in table['assets']})
+    for name, data in disk_files.items():
+        open(os.path.join(asset_dir, name), 'wb').write(data)
+    with open(os.path.join(pkg, 'core', 'info.txt'), encoding='utf-8') as f:
+        info = info_with_games(f.read(), disks)
+    with open(os.path.join(core_dir, 'info.txt'), 'w', encoding='utf-8', newline='\n') as f:
+        f.write(info)
+    with open(os.path.join(pkg, 'romdisks.txt'), encoding='utf-8') as f:
+        guide = romdisk_guide(f.read(), disks)
+    with open(os.path.join(asset_dir, 'romdisks.txt'), 'w', encoding='utf-8', newline='\n') as f:
+        f.write(guide)
     shutil.copyfile(os.path.join(ROOT, 'LICENSE'), os.path.join(core_dir, 'LICENSE.txt'))
     shutil.copyfile(os.path.join(CORE_SRC, 'LICENSE.TXT'), os.path.join(core_dir, 'LICENSE-karabas-core.txt'))
     shutil.copyfile(os.path.join(a.assets, 'romdisk-LICENSE.txt'), os.path.join(core_dir, 'LICENSE-romdisk.txt'))

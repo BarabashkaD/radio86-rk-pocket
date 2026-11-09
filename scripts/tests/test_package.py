@@ -147,6 +147,53 @@ class PackageTest(unittest.TestCase):
                     {'declare_ai': ['Claude'], 'previous': []}, {}, []):
             self.assertTrue(package.check_updaters(bad), bad)
 
+    def guide_template(self):
+        with open(os.path.join(ROOT, 'package', 'romdisks.txt'), encoding='utf-8') as f:
+            return f.read()
+
+    def test_romdisk_guide_lists_every_game_disk(self):
+        disks = [{'disk': 1, 'file': 'romdisk-1.bin', 'entries': [
+                     {'key': '0', 'name': 'CHESS', 'title': 'Шахматы'}, {'key': '1', 'name': 'GLASS2'}]},
+                 {'disk': 2, 'file': 'romdisk-2.bin', 'entries': [{'key': 'A', 'name': 'ZMEI', 'title': ''}]}]
+        text = package.romdisk_guide(self.guide_template(), disks)
+        for part in ('R0,1FF,0', 'G0', 'Change the ROM disk', 'romdisk.bin', '6  TETRIS'):
+            self.assertIn(part, text)
+        self.assertIn('the 3 games of the Karabas core on 2 disks', text)
+        self.assertIn('romdisk-1.bin (disk 1)\n  0  CHESS        Шахматы\n  1  GLASS2\n', text)
+        self.assertIn('romdisk-2.bin (disk 2)\n  A  ZMEI\n', text)
+        self.assertNotIn(package.GUIDE_MARKER, text)
+        self.assertTrue(text.endswith('\n'))
+
+    def test_romdisk_guide_needs_one_marker(self):
+        with self.assertRaises(ValueError):
+            package.romdisk_guide('no marker\n', [])
+
+    def test_info_lists_the_games_before_the_credits(self):
+        disks = [{'disk': 1, 'file': 'romdisk-1.bin', 'entries': [
+                     {'key': '0', 'name': 'CHESS', 'title': 'Шахматы'}, {'key': '1', 'name': 'GLASS2'}]},
+                 {'disk': 2, 'file': 'romdisk-2.bin', 'entries': [{'key': 'A', 'name': 'ZMEI', 'title': ''}]}]
+        text = package.info_with_games('Title\n* No Memories.\nCredits: someone.\n', disks)
+        self.assertEqual(text, 'Title\n* No Memories.\n'
+                               '* Game disks (3 games): load one from the core\'s menu, then R0,1FF,0 and G0; '
+                               'its menu keys:\n'
+                               '* romdisk-1.bin: 0 CHESS, 1 GLASS2\n'
+                               '* romdisk-2.bin: A ZMEI\n'
+                               'Credits: someone.\n')
+        self.assertTrue(text.isascii())
+        with self.assertRaises(ValueError):
+            package.info_with_games('no credits line\n', disks)
+
+    def test_game_disks_are_built_from_the_core(self):
+        if not os.path.isdir(package.PK_DIR):
+            self.skipTest('core submodule not checked out')
+        disks, files = package.game_disks(package.PK_DIR, {'romdisk.bin', 'monitor.bin', 'font.bin'})
+        self.assertEqual(list(files), ['romdisk-%d.bin' % n for n in range(1, 10)])
+        self.assertEqual([d['file'] for d in disks], list(files))
+        self.assertTrue(all(len(b) == 32256 for b in files.values()))
+        self.assertEqual(sum(len(d['entries']) for d in disks), 48)
+        self.assertEqual(disks[0]['entries'][0]['title'], 'Шахматы')
+        with self.assertRaises(SystemExit):
+            package.game_disks(package.PK_DIR, {'romdisk-3.bin'})
     def test_library_rejects_bad_updaters(self):
         name = 'Cores/%s/updaters.json' % package.CORE_ID
         with tempfile.TemporaryDirectory() as d:
