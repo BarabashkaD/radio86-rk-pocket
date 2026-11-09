@@ -3,9 +3,9 @@
 # Usage, from any directory: pwsh -File scripts/ci/unit-tests.ps1   (iverilog on PATH or IVERILOG set)
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '../..')
-$out = python -B -m unittest -v scripts/tests/test_package.py scripts/tests/test_k1_layout.py scripts/tests/test_check_repo.py scripts/tests/test_core_machine_subset.py 2>&1
+$out = python -B -m unittest -v scripts/tests/test_package.py scripts/tests/test_k1_layout.py scripts/tests/test_check_repo.py scripts/tests/test_core_machine_subset.py scripts/tests/test_romdisk.py 2>&1
 $code = $LASTEXITCODE
 $out
 if ($code -ne 0) { exit $code }
-if ($out -match 'skipped') { Write-Error 'a test was skipped: iverilog missing'; exit 1 }
+if ($out -match 'skipped') { Write-Error 'a test was skipped: iverilog, the fetched assets (python -B scripts/fetch_assets.py) or the core submodule missing'; exit 1 }
 exit 0

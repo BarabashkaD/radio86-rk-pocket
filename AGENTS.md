@@ -39,9 +39,11 @@ Layout:
 |---|---|---|---|---|
 | 0 | `monitor.bin` | 2048 | core `src/roms/BIOS.BIN` (stock monitor) | yes |
 | 1 | `font.bin` | 1024 | core `src/roms/FONT.BIN` | yes |
-| 2 | `romdisk.bin` | 32256 | skiselev/radio-86rk `Software/rom_disk.bin` at commit `c5e9cb7` | no (but a present file must have the pinned CRC) |
+| 2 | `romdisk.bin` | 32256 | skiselev/radio-86rk `Software/rom_disk.bin` at commit `c5e9cb7` | no (any image of up to 32768 bytes; no checks) |
 
-  - `scripts/fetch_assets.py` downloads the ROM disk and its GPL-3.0 licence into `build/assets` and checks size, CRC32 and SHA256. The ROM disk is never committed.
+  - The core loads the files as they are, byte by byte (`pocket_slot_loader`; no CRC since 0.7.0). The CRC32 and SHA256 in `assets.json` check the files when they are fetched and packaged.
+  - `scripts/fetch_assets.py` downloads the ROM disk and its GPL-3.0 licence into `build/assets` and checks size, CRC32 and SHA256; it also fetches Kiselev's loader source `rom_loader.asm` (`sources` in `assets.json`, checked by SHA256) for `scripts/tests/test_romdisk.py`. The ROM disk is never committed.
+  - The game disks: `scripts/romdisk/build_romdisks.py` builds the 48 tape images of the core's `pk/` into `build/romdisks/romdisk-1.bin` to `romdisk-9.bin` (32256 bytes each, a fixed table `DISKS`) with the games menu loader `scripts/romdisk/rom_loader_games.asm` (GPL-3.0, from Kiselev's); `romdisks.json` and `romdisks.txt` list the entries. Not committed, not packaged.
   - The font is also compiled into the bitstream as `fpga/rtl/native_font.vh` (the K1 panel draws with it, not with slot 1).
 - **Licences**: `LICENSES.md` (one row per part). Our code is BSD-3-Clause; the core is modified BSD; template files keep the Analogue notices; the ROM disk is GPL-3.0 with unestablished provenance of the programs inside.
 
@@ -73,7 +75,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 - **Git**: commit or push only when the maintainer asks; never rewrite published history.
 - **Releases and the openFPGA library**: once the core is listed in the openFPGA library, the library's updater picks up every GitHub release with a `.zip` asset within about 30 minutes (it ignores the pre-release flag) and the updater tools offer it to users. Create releases as drafts, check them, then publish; never publish a test build as a release. The updater finds a core's files by `author.shortname` from core.json, and a bad `date_release` or an empty `platform_ids` breaks the library's shared update job, so `package.py` checks both before it writes PASS.
 - **Privacy and portability**: no environment-specific values in committed files (no absolute local paths, host or user names, emails); paths relative to the repo or from env vars. The scripts already resolve paths from their own location.
-- **Change checklist** (from the existing tests): RTL change -> the unit TB of the module, its negatives, then the slow system scenarios that cover it, then a Quartus build with `check_build.py`. Package change -> `test_package.py` and a `package.py` run.
+- **Test tiers** (section 6, "Test tiers"): run the **quick** tier for every commit, the **standard** tier after an RTL change (only the system scenarios of the changed modules), and the **full** tier once before a push, when all fixes and features of the push are done. The **release** tier (the ROM disk scenarios) runs before a package goes to the Pocket, and only its scenarios that the change touches. Choose the tests by the files the change touches, not by habit; a docs-only change needs only `check_repo.py`. Long system scenarios: at most two at once, each in its own `run_sim.py` call (each writes only its own `build/sim/<name>/`), never the same scenario twice at once; stop at the first failure.
 
 ## 5. Sources
 
@@ -81,12 +83,12 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 
 | File | Role (from its header) |
 |---|---|
-| `pocket_system.v` | everything behind the APF template: asset stores, interact registers, the board, frame banks, audio, PLL watchdog, resets; status registers (identity `0x524B4D31`) |
+| `pocket_system.v` | everything behind the APF template: the slot loader, interact registers, the board, frame banks, audio, PLL watchdog, resets; status registers (identity `0x524B4D31`) |
 | `radio86rk_pocket.v` | the Radio-86RK board around `rk86_machine`, `rk86_video`, `rk86_video_stream`, one clock domain `clk_74a` |
-| `pocket_memory.v` | RAM 0000-7FFF in block RAM: CPU port with address tag, DMA read port with write forwarding, monitor port, `cpu_ready` by region |
+| `pocket_memory.v` | RAM 0000-7FFF and the monitor (8000-87FF of the array) in one byte-wide single-port memory: the CPU, the DMA while it holds the bus, the loader port in reset; `cpu_ready` by region; RUS shadow |
 | `pocket_cold_clear.v` | clears the 32 KB RAM through the loader port at the first boot and on Cold boot |
-| `pocket_boot_assets.v` | APF data-slot loading of monitor, font, ROM disk; size and CRC checks; asset status |
-| `pocket_asset_store.v` | addressed word store / validator used by the asset loader |
+| `pocket_slot_loader.v` | APF data-slot requests and writes: each bridge word into 4 byte writes of the monitor (into `pocket_memory`), the font and the ROM disk; bytes beyond the requested size dropped; no checks; `assets_valid` |
+| `pocket_rom8.v` | byte-wide memory with one write and one read port (data and tag 1 clk later): the font and the ROM disk |
 | `pocket_cart_ppi.v` | mode-0 8255 subset in A000-BFFF serving the ROM disk |
 | `pocket_keyboard.v` | the buttons as keyboard lines (64 matrix lines + SS, US, RUS), K1 panel state, Shift latch; timings as ms parameters |
 | `pocket_remap.v` | button-to-key map from Keys, Keys on and Escape settings |
@@ -94,7 +96,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 | `pocket_k1_layout.vh` | generated key table, labels, small glyphs, palettes (do not edit) |
 | `pocket_bus_cdc.v` | toggle-handshake crossing of the 78-bit panel state, `clk_74a` to the video clock |
 | `pocket_window.v` | the 408 x 300 window of the native dot stream with its own frame markers |
-| `pocket_frame_video.v` | dual-clock ping-pong frame banks, 60 Hz output, K1 panel overlay, red diagnostic frame |
+| `pocket_frame_video.v` | dual-clock ping-pong frame banks, 60 Hz output, K1 panel overlay, red diagnostic frame input (not driven by the core since 0.7.0) |
 | `pocket_audio.v` | Karabas beeper (`pc0 ^ inte`) to 48 kHz signed 16-bit I2S with a DC blocker |
 | `pocket_interact.v` | Core Settings registers 0x100-0x144; no reset, defaults from `interact.json` |
 | `pocket_pll_watchdog.v` | restarts the video/audio PLL after 2^21 clk (28 ms) without lock |
@@ -110,7 +112,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 - `fpga/sim/`:
   - `run_sim.py`: the test runner (section 6); `frame_compare.py`: compares a 1-bit 408 x 300 frame with a golden frame, allowing one character cell (the cursor).
   - `run_core_machine.py`: the CI subset of the core's machine TB on `pocket_memory` (imports the core runner in place).
-  - `unit/`: one TB per module (`tb_assets`, `tb_bus_cdc`, `tb_cart_ppi`, `tb_cold_clear`, `tb_frame_colour`, `tb_frame_video`, `tb_k1_panel`, `tb_native_audio`, `tb_pll_watchdog`, `tb_pocket_interact`, `tb_pocket_keyboard`, `tb_pocket_memory`, `tb_pocket_window`).
+  - `unit/`: one TB per module (`tb_slot_loader`, `tb_bus_cdc`, `tb_cart_ppi`, `tb_cold_clear`, `tb_frame_colour`, `tb_frame_video`, `tb_k1_panel`, `tb_native_audio`, `tb_pll_watchdog`, `tb_pocket_interact`, `tb_pocket_keyboard`, `tb_pocket_memory`, `tb_pocket_window`).
   - `system/`: `tb_system.v` (`pocket_system` with a PLL stub; scenarios via `+scenario=`) and `power_up.vh` (power-up values of the machine and video).
   - `memory/tb_rk86_mem.v`: `pocket_memory` as the memory model of the core's machine TB.
   - `negative/`: fault `.patch` files, each with the error text it must produce (listed in `run_sim.py`).
@@ -122,7 +124,11 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 |---|---|
 | `build.ps1` | Quartus build into `build/quartus` (`-BuildDir`, `-QuartusRoot`), then `check_build.py` |
 | `check_build.py` | build gate: full compilation with 0 errors, no critical warning, 5 slack kinds non-negative in all 4 corners, `ap_core.rbf` present |
-| `fetch_assets.py` | fetch and check the ROM disk and its licence (`--record-licence` records an empty licence SHA256 once) |
+| `fetch_assets.py` | fetch and check the ROM disk, its licence and Kiselev's loader source (`--record-licence` records an empty licence SHA256 once) |
+| `romdisk/asm8080.py` | a two-pass Intel 8080 assembler (the syntax of Kiselev's `rom_loader.asm`) |
+| `romdisk/rom_loader_games.asm`, `romdisk/loader.py` | the games menu loader (GPL-3.0; keys 0-9 then A-Y, Z clears RAM) and `games_loader()`, which fills in its table and menu |
+| `romdisk/emu8080.py` | a small 8080 emulator with the monitor's PRINT, GETCH and ROM disk copy stubbed: runs a ROM disk menu for the tests |
+| `romdisk/build_romdisks.py` | builds the 9 game disks into `build/romdisks` (`--pk`, `--out`) |
 | `package.py` | SD package and zip from a Quartus build; checks openFPGA field limits and the interact limit; bit-reverses the RBF; draws icon and platform image |
 | `k1/layout.py` | single source of the K1 key table, labels, navigation and the golden panel model `render_panel` |
 | `k1/gen_verilog.py` | writes `fpga/rtl/pocket_k1_layout.vh` (`--out PATH`) |
@@ -136,6 +142,7 @@ Environment variables: `QUARTUS_ROOT`, `IVERILOG`, `RK86_CORE_DIR` (optional ove
 | `tests/test_k1_layout.py` | key table, decoder, generated file up to date, Verilog functions vs model (needs iverilog) |
 | `tests/test_check_repo.py` | its tests; fails while a fixed file is still in `LEGACY` |
 | `tests/test_core_machine_subset.py` | the CI machine subset still matches the pinned core runner |
+| `tests/test_romdisk.py` | the assembler (Kiselev's loader byte-exact), the games loader in the emulator, the 9 disks (every key of every disk loads and starts its game); needs `fetch_assets.py` first |
 
 ### `package/`
 
@@ -151,7 +158,7 @@ All commands from the repo root. Python scripts run with `-B` (no `__pycache__`)
 python -B scripts/fetch_assets.py
 ```
 
-The `assets` unit test and every system scenario read `build/assets/romdisk.bin`.
+Every system scenario reads `build/assets/romdisk.bin`.
 
 ### Simulation (`fpga/sim/run_sim.py`, outputs in `build/sim/<test>/`)
 
@@ -163,14 +170,47 @@ python -B fpga/sim/run_sim.py boot menu            named tests only
 python -B fpga/sim/run_sim.py --iverilog PATH ...  when iverilog is not on PATH and IVERILOG is unset
 ```
 
-- Unit tests: `cart_ppi`, `audio`, `bus_cdc`, `keyboard`, `frame_video`, `frame_colour`, `k1_panel`, `assets`, `memory`, `cold_clear`, `window`, `interact`, `watchdog`. Fast.
-- System scenarios (slow, `tb_system`): `boot`, `powerup` (both compared with `golden/monitor-boot.hex`), `nocart`, `reset`, `relock`, `system_watchdog`, `menu` (compared with `golden/rom-disk-menu.hex`), `xonix`, `dpddt`, `tetris`, `k1`, `system_k1_panel` (scenario `k1_panel`; CI: the panel without the monitor, 3 captures, about 11 min; check with `python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3`). `k1` takes about 40 minutes; check its captures with:
+- Unit tests: `cart_ppi`, `audio`, `bus_cdc`, `keyboard`, `frame_video`, `frame_colour`, `k1_panel`, `slot_loader`, `memory`, `cold_clear`, `window`, `interact`, `watchdog`. Fast.
+- System scenarios (slow, `tb_system`): `boot`, `powerup` (both compared with `golden/monitor-boot.hex`), `nocart`, `reset`, `relock`, `system_watchdog`, `menu` (compared with `golden/rom-disk-menu.hex`), `xonix`, `dpddt`, `tetris`, `game` (game disk 9 from `build/romdisks`, XONIX1 by the letter key B; build the disks first; about 1.5 h), `k1`, `system_k1_panel` (scenario `k1_panel`; CI: the panel without the monitor, 3 captures, about 11 min; check with `python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3`). `k1` takes about 40 minutes; check its captures with:
 
 ```text
 python -B scripts/k1/check_frames.py build/sim/k1
 ```
 
 - Pass rule: `vvp` exits 0, prints a `PASS` line, no `ERROR`/`FATAL` line, and the frame compare passes where configured.
+
+### Test tiers
+
+Choose by the files the change touches (`git diff --name-only <base>...HEAD` plus the uncommitted changes). The times were measured locally (2026-11), the system scenarios before K1 was added; expect up to 1.4 times more.
+
+| Tier | When | Tests | Time |
+|---|---|---|---|
+| quick | every commit | `check_repo.py`; the Python tests whose scripts or data changed (`scripts/ci/unit-tests.ps1` runs all of them); `run_sim.py --negative <unit TBs whose files or fault patches changed>` (all unit TBs: 3.6 min) | 1-5 min |
+| standard | after an RTL or TB change | quick, plus the system scenarios of the changed modules (table below; at most two at once, one per `run_sim.py` call), plus `run_core_machine.py` (7 min) after a change of `pocket_memory.v` or `fpga/sim/memory/`, the package dry run after a change of `package/` or the package scripts, and a Quartus build after a change of `fpga/core/`, `fpga/apf/`, `fpga/quartus/` or an `.sdc` file | 10-90 min |
+| full | once before a push | every unit TB with faults, `unit-tests.ps1`, the system scenarios `boot`, `powerup`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel` (then `check_frames.py --expect 3`) and `k1` (then `check_frames.py`), the full machine command below (29 min), `package-dry-run.ps1`, `build.ps1` with `check_build.py` | about 2.7 h |
+| release | before a package goes to the Pocket | full, plus the ROM disk scenarios the change touches (`menu` 57 min; `xonix`, `dpddt`, `tetris`; `game` 1.5 h, after `build_romdisks.py`), then `package.py` on the real build | up to +7 h |
+
+System scenarios per changed module (standard tier; the release tier adds the last column):
+
+| Changed | Standard | Release adds |
+|---|---|---|
+| `pocket_keyboard.v`, `pocket_remap.v` | `system_k1_panel` | `k1`, `tetris` |
+| `pocket_k1_panel.v`, `pocket_k1_layout.vh`, `native_font.vh`, `scripts/k1/` | `system_k1_panel` | `k1` |
+| `pocket_bus_cdc.v` | `system_k1_panel`, `relock` | |
+| `pocket_frame_video.v` | `boot`, `system_k1_panel`, `relock` | |
+| `pocket_window.v` | `boot` | `menu` |
+| `pocket_memory.v`, `pocket_cold_clear.v` | `boot`, `reset` (and `run_core_machine.py`) | `menu` |
+| `pocket_slot_loader.v`, `pocket_rom8.v` | `boot`, `nocart` | `menu` |
+| `pocket_cart_ppi.v` | `nocart` | `menu`, `xonix` |
+| `pocket_audio.v` | `relock` (the `audio` unit TB checks the samples) | |
+| `pocket_pll_watchdog.v` | `system_watchdog`, `relock` | |
+| `pocket_interact.v` | `boot`, `reset` | `tetris` |
+| `radio86rk_pocket.v` | `boot`, `nocart`, `reset`, `system_k1_panel` | `menu` |
+| `pocket_system.v`, `tb_system.v`, `power_up.vh` | `boot`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel` | `menu` |
+| `scripts/romdisk/` | (`test_romdisk.py` in quick) | `game` |
+| a new module | the `pocket_system.v` row | `menu` |
+
+Always the full tier, whatever the diff: a move of the core submodule pin, a change of `.gitattributes`, of a golden frame, or of the iverilog version. CI repeats part of this (section "CI"): `checks.yml` only on a PR to `main`, `weekly.yml` on Mondays or on demand for a branch; the Quartus build and the ROM disk scenarios run only locally.
 
 ### Core machine TB on the Pocket memory
 
@@ -214,7 +254,7 @@ Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in
 ### CI (GitHub Actions)
 
 - `.github/workflows/checks.yml`, on every PR to `main`, every push to `main` and on demand, 4 jobs on Ubuntu runners with PowerShell steps (a new push to a PR cancels that PR's running checks):
-  - `python`: `scripts/check_repo.py` (LF, final newline, no links into `docs/`, no absolute local paths), `scripts/ci/unit-tests.ps1` (the Python unit tests; a skipped test fails the job), `fetch_assets.py`, and `scripts/ci/package-dry-run.ps1` (`package.py` with a 256-byte stand-in `ap_core.rbf` into the runner's temp folder: definitions, assets, zip layout, openFPGA library rules; the zip is not uploaded);
+  - `python`: `scripts/check_repo.py` (LF, final newline, no links into `docs/`, no absolute local paths), `fetch_assets.py` (before the unit tests: `test_romdisk.py` needs the loader source and the ROM disk), `scripts/ci/unit-tests.ps1` (the Python unit tests; a skipped test fails the job), and `scripts/ci/package-dry-run.ps1` (`package.py` with a 256-byte stand-in `ap_core.rbf` into the runner's temp folder: definitions, assets, zip layout, openFPGA library rules; the zip is not uploaded);
   - `sim-unit`: `run_sim.py --negative` (the unit TBs, then each fault must fail with its own error);
   - `k1-panel`: `run_sim.py system_k1_panel` and `check_frames.py build/sim/system_k1_panel --expect 3` (the panel without the monitor, palettes 0, 1, 2; about 11 min);
   - `core-machine`: `fpga/sim/run_core_machine.py` (the core runner's g, stall, stall_realign, stall_frac on `pocket_memory`; about 7 min).
@@ -223,29 +263,29 @@ Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (a stand-in
 - Icarus Verilog 13.0 is built from source (tag `v13_0`, checked against its commit) by `.github/actions/setup-iverilog` and cached.
 - On failure a job uploads its output folder for 7 days, without `cartridge.hex` (the ROM disk), `monitor.hex`, `font.hex` and `*.vvp`.
 - The machine runs (`run_core_machine.py`, `run_machine_sim.py --mem`) write into the core submodule's ignored `build/sim/machine/`, an exception to "outputs go to `build/`" (section 4): the core runner sets that folder.
-- `scripts/check_repo.py` exempts the APF template (`fpga/apf/`, `fpga/core/`) from the LF rule and lists in `LEGACY` the files that have a CR or no final newline today; normalising them is a separate change the maintainer approves (it touches RTL and the fault patch `rom_disk_required.patch`), and that change removes their entries.
-- Not in CI: the ROM disk scenarios (`menu`, `xonix`, `dpddt`, `tetris`: 1-2 h each), the Quartus build, the hardware test.
+- `scripts/check_repo.py` exempts the APF template (`fpga/apf/`, `fpga/core/`) from the LF rule and lists in `LEGACY` the files that have a CR or no final newline today; normalising them is a separate change the maintainer approves (it touches RTL and the golden frames), and that change removes their entries.
+- Not in CI: the ROM disk scenarios (`menu`, `xonix`, `dpddt`, `tetris`, `game`: 1-2 h each), the Quartus build, the hardware test.
 - Every step runs locally in PowerShell from the repo root with the same commands and scripts (iverilog on PATH or `IVERILOG` set; the core's `run_machine_sim.py`, the weekly full machine command, reads only PATH or `--iverilog`, not `IVERILOG`; without `RUNNER_TEMP` the dry run works in `build/ci-local/tmp/`).
 
 ### Install on a Pocket
 
-Unzip the package onto the root of the Pocket's SD card. The core appears as "Radio-86RK". Monitor and font are required in the Assets folder; the ROM disk is optional, but another image than the pinned one is an asset error (red frame, CPU held). Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` first. Hardware runs are the maintainer's.
+Unzip the package onto the root of the Pocket's SD card. The core appears as "Radio-86RK". Monitor and font are required in the Assets folder; the ROM disk is optional, and the files are loaded as they are, with no checks (a ROM disk image of up to 32768 bytes). Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` first. Hardware runs are the maintainer's.
 
-## 7. Features (0.6.2)
+## 7. Features (0.7.0)
 
 - The Karabas core's Radio-86RK machine at the Karabas speed: `clk_74a` (74.25 MHz) with a clock enable on 160 of 297 ticks = 40 MHz average timebase; CPU about 1.43 MHz (40 / 28).
-- Monitor and font from data slots, checked by size and CRC32; a bad or missing one holds the CPU in reset and shows a red diagnostic frame.
-- ROM disk behind an 8255 in A000-BFFF (optional; absent: reads FF; a wrong CRC is an asset error). Menu via `R0,1FF,0` and `G0`.
+- Monitor and font from data slots, loaded byte by byte as they are (no checks): the monitor into the machine's memory array at 8000-87FF (read at E000-FFFF), the font into its own memory, read only by the video.
+- ROM disk behind an 8255 in A000-BFFF (optional; absent: reads FF; any image of up to 32768 bytes). Menu via `R0,1FF,0` and `G0`. Nine game disks can be built from the core's `pk/` (section 2).
 - K1 on-screen keyboard (L+R): the 67 real keys, one label per key from the monitor's own decoder, LAT/RUS, Shift latch (L tap), Ctrl (L held), RUS/LAT (R), palettes Pink (v1.1), Grey (v1.4), Mono.
 - Button presets with the panel closed: Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad or A B X Y), Escape (Select, Start, None).
 - Core Settings: Reset (RAM kept), Cold boot (RAM cleared), Sound, Text colour (white/green), Keyboard colours.
 - Video 408 x 300 at 60 Hz through two frame banks (native frames 41.7 Hz); beeper at 48 kHz I2S.
 - PLL watchdog: on lock loss only picture and sound stop; the machine keeps running.
-- Status registers on the bridge (identity, flags, asset status, CRCs, CPU address, frame count, panel and keyboard state): `fpga/README.md`, Bridge map.
+- Status registers on the bridge (identity, flags, CPU address, frame count, panel and keyboard state): `fpga/README.md`, Bridge map.
 
 ## 8. Restrictions, known issues, limitations
 
-- 0.6.1 was the first release (0.5.1 and 0.6.0 were pre-releases, `CHANGELOG.md`); 0.6.2 is the same core with new artwork. The maintainer ran both on a Pocket with OS 2.7. Hardware behaviour beyond the maintainer's runs is unverified.
+- 0.6.1 was the first release (0.5.1 and 0.6.0 were pre-releases, `CHANGELOG.md`); 0.6.2 is the same core with new artwork. The maintainer ran both on a Pocket with OS 2.7, and 0.7.0 too (2026-11-09). Hardware behaviour beyond the maintainer's runs is unverified.
 - No savestates (Memories), no sleep (`sleep_supported: false`).
 - CPU at about 1.43 MHz, about 20% slower than the original's ~1.78 MHz. The divider is in the Karabas core, so a speed change is a core change that also affects the Karabas boards.
 - No tape: `tape_in` is tied high; data slot 3 (0x2300_0000) is reserved for tape images. The Dock USB keyboard is recognized but not used (the second matrix input is tied off). Interact registers 0x11C-0x144 are reserved.
@@ -253,7 +293,7 @@ Unzip the package onto the root of the Pocket's SD card. The core appears as "Ra
 - The ROM disk's public distribution is undecided (programs' provenance not established); `package.py` packs whatever `assets.json` lists. `package/core/updaters.json` declares the AI tool (`declare_ai`); `package.py` allows no other key (`license` would make updaters ask for a licence file).
 - With the panel open the prompt stays on the bottom row under the panel (CLS, СТР in RUS, clears the screen). A latched Shift is not shown while the panel is closed.
 - `pocket_keyboard` holds a key at least `MIN_HOLD_MS` (80 ms): two B presses closer than that may merge into one.
-- The panel can be drawn over the red error frame in simulation; on hardware the keyboard is enabled only with valid assets and ready memory (`radio86rk_pocket.v`), so after an asset error the panel stays closed.
+- The `k1_panel` unit test draws the panel over the red error frame of `pocket_frame_video`; the core does not drive that frame since 0.7.0.
 - Some ROM disk programs overwrite the menu loader, as on the real machine: Xonix runs at 0000 (system scenario `xonix`), DP/DDT loads at 6400 and overwrites it too (`package/core/info.txt`). Use Reset, then `R0,1FF,0`, `G0` again.
 - From the core (its `docs/integration.md`, Known limits): the DMA, CRT and PPI implement only what the Radio-86RK uses; the CRT and `rk86_video` have no reset and rely on INIT/power-up values (the system TB sets them via `power_up.vh`); field attributes make the picture drift; columns 75-77 of a row are not shown.
 - `scripts/build.ps1` expects the Windows Quartus layout (`bin64\quartus_sh.exe`).

@@ -31,12 +31,8 @@ set pocket_request_source [pocket_token_registers request_token]
 set pocket_ack_source [pocket_token_registers ack_token]
 set pocket_request_first [pocket_first_register {*|video|request_sync*} {\|request_sync\[0\]$}]
 set pocket_ack_first [pocket_first_register {*|video|ack_sync*} {\|ack_sync\[0\]$}]
-set pocket_error_first [pocket_first_register {*|video|error_sync*} {\|error_sync\[0\]$}]
 set_false_path -from $pocket_request_source -to $pocket_request_first
 set_false_path -from $pocket_ack_source -to $pocket_ack_first
-# The latched error predicate is formed from several asset FSM/register bits.
-# Cut root-clock sources only to this one asynchronous status receiver.
-set_false_path -from [get_clocks clk_74a] -to $pocket_error_first
 # The text colour (interact, clk_74a) is a static setting: only its first receiver is cut.
 set pocket_green_first [pocket_first_register {*|video|green_sync*} {\|green_sync\[0\]$}]
 set_false_path -from [get_clocks clk_74a] -to $pocket_green_first

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Downloads the pinned ROM disk and its licence into build/assets and checks them (spec 7).
+"""Downloads the pinned ROM disk, its licence and the loader source into build/assets and checks them (spec 7).
 
 Usage: python -B scripts/fetch_assets.py [--record-licence]
 Every asset with an https source is fetched once (kept when its SHA256 already matches) and
 checked by size, CRC32 and SHA256 from package/assets.json. --record-licence writes the SHA256
 of a licence whose value is still empty into assets.json (once, when it is first fetched).
+The "sources" list (the ROM disk loader source) is fetched and checked by SHA256 only.
 """
 import argparse
 import hashlib
@@ -58,6 +59,19 @@ def main():
             print('ERROR: %s SHA256 %s, expected %s' % (lic['name'], digest, lic['sha256'] or '(not recorded)'))
             return 1
         print('PASS %s: SHA256 %s' % (lic['name'], digest))
+    for src in table.get('sources', []):
+        path = os.path.join(OUT, src['name'])
+        data = b''
+        if os.path.exists(path):
+            with open(path, 'rb') as f:
+                data = f.read()
+        if hashlib.sha256(data).hexdigest() != src['sha256']:
+            data = fetch(src['source'], path)
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != src['sha256']:
+            print('ERROR: %s SHA256 %s, expected %s' % (src['name'], digest, src['sha256']))
+            return 1
+        print('PASS %s: SHA256 %s' % (src['name'], digest))
     if changed:
         with open(TABLE, 'w', encoding='utf-8', newline='\n') as f:
             json.dump(table, f, indent=2)

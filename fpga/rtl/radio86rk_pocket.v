@@ -6,7 +6,6 @@ module radio86rk_pocket(
     input  wire        clk,               // clk_74a
     input  wire        apf_reset_n,       // core_bridge_cmd reset_n: low until Reset Exit
     input  wire        assets_valid,
-    input  wire        cartridge_valid,
     input  wire        warm_reset,        // one clk: interact Reset (RAM kept)
     input  wire        cold_boot,         // one clk: interact Cold boot (RAM cleared)
     input  wire        sound_on,
@@ -15,14 +14,11 @@ module radio86rk_pocket(
     input  wire        keys_on,
     input  wire  [1:0] escape,
     input  wire  [1:0] palette,           // Keyboard colours (interact 0x118)
-    output wire [10:0] monitor_address,
-    input  wire  [7:0] monitor_data,
-    input  wire [10:0] monitor_tag,
-    output wire  [9:0] font_address,
-    input  wire  [7:0] font_data,
-    output wire [14:0] cartridge_address,
-    input  wire [14:0] cartridge_tag,
-    input  wire  [7:0] cartridge_data,
+    input  wire        monitor_we,        // pocket_slot_loader: a monitor byte at byte_a[10:0]
+    input  wire        font_we,           // a font byte at byte_a[9:0]
+    input  wire        romdisk_we,        // a ROM disk byte at byte_a[14:0]
+    input  wire [14:0] byte_a,
+    input  wire  [7:0] byte_d,
     output wire        pixel_valid,
     output wire        pixel_data,
     output wire        pixel_start,
@@ -46,13 +42,19 @@ always @(posedge clk) begin
     ce <= ce_next;
 end
 
-//--------- the cold clear: first boot and Cold boot (spec 5.2) --------------
+//--------- the cold clear: first boot and Cold boot (spec 5.2), only after the slots ----------
 wire clear_active, clear_we, clear_done;
 wire [14:0] clear_a;
 wire [7:0] clear_d;
-pocket_cold_clear clear(.clk(clk), .start(cold_boot || (assets_valid && !clear_done)), .active(clear_active),
+pocket_cold_clear clear(.clk(clk), .start(assets_valid && (cold_boot || !clear_done)), .active(clear_active),
     .we(clear_we), .a(clear_a), .d(clear_d), .done(clear_done));
 assign memory_ready = clear_done && !clear_active;
+// the loader port of pocket_memory: the monitor bytes of the slot loader until assets_valid, then
+// the cold clear of 0000-7FFF (the machine is in reset in both)
+wire load_active = clear_active || !assets_valid;
+wire load_we = clear_active ? clear_we : monitor_we;
+wire [15:0] load_a = clear_active ? {1'b0, clear_a} : {5'b10000, byte_a[10:0]};
+wire [7:0] load_d = clear_active ? clear_d : byte_d;
 
 //--------- the machine reset: every source is a clk register; held 15 ce (integration.md 3) ----
 wire run = apf_reset_n && assets_valid && memory_ready && !warm_reset;
@@ -81,14 +83,23 @@ rk86_machine machine(.clk(clk), .ce(ce), .reset(reset), .cpu_ready(cpu_ready),
     .lattr(lattr), .gattr(gattr), .irq(irq), .ext_we_n(ext_we_n), .ext_di(ext_di));
 assign cpu_address = cpu_a;
 
-//--------- memory and the ROM disk window --------------
+//--------- memory, the font, the ROM disk and its window --------------
 wire cart_ready, cpu_write, rus_mode;
 pocket_memory mem(.clk(clk), .reset(reset), .cpu_a(cpu_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(rom),
     .vid_a(vid_a), .vid_rd(vid_rd), .window_ready(cart_ready), .mem_di(mem_di), .cpu_ready(cpu_ready),
-    .cpu_write(cpu_write), .rom_addr(monitor_address), .rom_data(monitor_data), .rom_tag(monitor_tag),
-    .load_active(clear_active), .load_we(clear_we), .load_a(clear_a), .load_d(clear_d), .rus_mode(rus_mode));
+    .cpu_write(cpu_write), .load_active(load_active), .load_we(load_we), .load_a(load_a), .load_d(load_d),
+    .rus_mode(rus_mode));
+wire [9:0] font_address;
+wire [7:0] font_data;
+pocket_rom8 #(.AW(10), .FILL(8'h00)) font_rom(.clk(clk), .we(font_we), .wa(byte_a[9:0]), .wd(byte_d),
+    .ra(font_address), .rd(font_data), .tag());
+wire [14:0] cartridge_address, cartridge_tag;
+wire [7:0] cartridge_data;
+pocket_rom8 #(.AW(15), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
+    .ra(cartridge_address), .rd(cartridge_data), .tag(cartridge_tag));
+// the ROM disk memory starts at FF, so without a ROM disk the window reads FF
 pocket_cart_ppi cart(.clk(clk), .reset(reset), .write_strobe(cpu_write && cpu_a[15:13] == 3'd5),
-    .register_address(cpu_a[1:0]), .write_data(cpu_do), .read_data(ext_di), .rom_valid(cartridge_valid),
+    .register_address(cpu_a[1:0]), .write_data(cpu_do), .read_data(ext_di), .rom_valid(1'b1),
     .rom_address(cartridge_address), .rom_tag(cartridge_tag), .rom_data(cartridge_data), .read_ready(cart_ready));
 
 //--------- keyboard --------------

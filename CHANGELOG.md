@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0 (2026-11-09)
+
+Run on a Pocket by the maintainer (2026-11-09). Includes 0.6.3, which was not released on its own.
+
+- Direct 8-bit loading: the data slots are written byte by byte into the machine's memories (`pocket_slot_loader`: each 32-bit bridge word becomes 4 byte writes, only while the core is held in reset). The monitor sits in the machine's memory array at 8000-87FF (read at E000-FFFF), next to the RAM; the font and the ROM disk have their own byte-wide memories (`pocket_rom8`), which the CPU never writes.
+- One port for the RAM and the monitor (`pocket_memory`), as on the original: the CPU, or the DMA while it holds the bus; the DMA read port and its write forwarding are gone. Every memory is built once: 103 of 308 M10K blocks (0.6.3: 173), RAM and monitor 34, ROM disk 32, font 1.
+- No checks of the files: no CRC, no coverage, no red error frame (`pocket_boot_assets` and `pocket_asset_store` removed; the `error_sync` endpoint left the CDC constraints and report). Status registers 0x14, 0x1C, 0x20 and 0x3C read 0. `data.json` gives only maximum sizes: monitor 2048, font 1024, ROM disk 32768 bytes; bytes no slot wrote read FF (monitor, ROM disk) or 00 (font). Cold boot clears 0000-7FFF and keeps the monitor.
+- `check_build.py` allows one expected critical warning (`ALLOWED_CRITICAL`): Quartus pads the initial contents of the 34816-byte `pocket_memory` to its 16-bit address.
+- Tests: unit test `slot_loader` (faults `size_not_limited`, `lane_order`) replaces `assets` (and its faults `rom_disk_required`, `rom_disk_crc_checked`); `memory` and `cold_clear` for the one-port memory, its faults regenerated; the system TB checks the loaded memories; the core machine TB copies the monitor into `pocket_memory`. Test tiers in AGENTS.md section 6.
+
+## 0.6.3 (2026-11-09, not released)
+
+- The ROM disk slot accepts any image of 32256 bytes: its CRC is no longer checked (`pocket_asset_store` parameter `CHECK_CRC`, 0 for the ROM disk only), only reported in the status register 0x3C. The monitor and the font keep their CRC checks. New fault `rom_disk_crc_checked` of the `assets` unit test.
+- Game disks: `scripts/romdisk/build_romdisks.py` builds the 48 game tape images of the Karabas core (`pk/`, the duplicates included) into 9 ROM disks with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0: keys 0-9 then A-Y, Z clears RAM). They are built locally, not in the package. Tools: an 8080 assembler (it reproduces Kiselev's loader byte for byte) and a small 8080 emulator; `scripts/tests/test_romdisk.py` starts every game of every disk from its menu key in the emulator.
+- The games loader copies and starts a game on the monitor's stack (76CF), not inside its own table: after Reset, `G7416` shows the menu again with an intact table (before, the selected entry and the one before it no longer loaded). The emulator's monitor stubs now use the stack as deeply as the real calls; new tests `test_menu_again_after_a_game` and `test_game_starts_with_the_monitor_stack`.
+- System scenario `game`: disk 9, the menu, XONIX1 by the key B, on the whole core (local, about 1.5 h).
+- `fetch_assets.py` also fetches Kiselev's loader source (`sources` in `assets.json`); in CI the assets are fetched before the Python unit tests.
+
 ## 0.6.2 (2026-11-08)
 
 - The 0.6.1 core (the same bitstream) with new artwork, run on a Pocket (OS 2.7) by the maintainer.

@@ -1,8 +1,8 @@
 `timescale 1ns/1ps
 `default_nettype none
 // pocket_cold_clear driving the loader port of pocket_memory (spec 5.2, 5.4): idle before start,
-// we for exactly 32768 clks, every RAM byte and the RUS shadow cleared, a second clear, and a
-// start during a clear that does not restart it.
+// we for exactly 32768 clks, every RAM byte and the RUS shadow cleared, the monitor area kept, a
+// second clear, and a start during a clear that does not restart it.
 module tb_cold_clear;
 reg clk = 1'b0;
 always #5 clk = ~clk;
@@ -16,12 +16,10 @@ wire [14:0] a;
 wire [7:0] d;
 wire [7:0] mem_di;
 wire cpu_ready, cpu_write, rus_mode;
-wire [10:0] rom_addr;
 pocket_cold_clear clear(.clk(clk), .start(start), .active(active), .we(we), .a(a), .d(d), .done(done));
 pocket_memory dut_mem(.clk(clk), .reset(reset), .cpu_a(cpu_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(1'b0),
     .vid_a(16'h0000), .vid_rd(1'b0), .window_ready(1'b1), .mem_di(mem_di), .cpu_ready(cpu_ready),
-    .cpu_write(cpu_write), .rom_addr(rom_addr), .rom_data(8'h00), .rom_tag(11'h000),
-    .load_active(active), .load_we(we), .load_a(a), .load_d(d), .rus_mode(rus_mode));
+    .cpu_write(cpu_write), .load_active(active), .load_we(we), .load_a({1'b0, a}), .load_d(d), .rus_mode(rus_mode));
 integer i, wcount = 0;
 always @(posedge clk) if (we) wcount = wcount + 1;
 task fail(input [8*64-1:0] what);
@@ -39,6 +37,8 @@ task check_zero;
                 $display("ERROR: RAM byte %0h is %0h after the clear", i, dut_mem.ram[i]);
                 $finish;
             end
+        for (i = 32768; i < 34816; i = i + 1)
+            if (dut_mem.ram[i] !== 8'hFF) fail("the clear wrote the monitor area");
     end
 endtask
 // one-clk start pulse; the signals are checked on the negedge after the next posedge
@@ -97,7 +97,7 @@ initial begin
     if (wcount !== 32768) fail("start during a clear: we count is not 32768");
     if (done !== 1'b1) fail("start during a clear: done dropped");
     check_zero;
-    $display("PASS cold_clear: idle before start, 32768 we clks per clear, all RAM bytes and the RUS shadow zero, second clear, start during a clear ignored");
+    $display("PASS cold_clear: idle before start, 32768 we clks per clear, all RAM bytes and the RUS shadow zero, monitor area kept, second clear, start during a clear ignored");
     $finish;
 end
 endmodule

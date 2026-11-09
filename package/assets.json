@@ -34,5 +34,13 @@
       "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/LICENSE",
       "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
     }
+  ],
+  "sources": [
+    {
+      "name": "rom_loader.asm",
+      "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/src/rom_loader.asm",
+      "sha256": "149bf16c469ad6f3727e36d9bcf715c522602f49223defe1f2b12eb4cd728992",
+      "licence": "skiselev/radio-86rk, GPL-3.0: Sergey Kiselev's ROM disk loader, the base of scripts/romdisk/rom_loader_games.asm"
+    }
   ]
 }
