@@ -1,0 +1,26 @@
+name: rk86-vvp
+
+services:
+  rk86-vvp:
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-debian:testing-20261104-slim}
+    image: rk86-vvp:13.0
+    ports:
+      - "${RK86_VVP_SSH_PORT:-2222}:22"
+    restart: "no"
+    init: true
+    stop_grace_period: 5s
+    volumes:
+      # The host key and the client key pair; they never leave the container.
+      - type: volume
+        source: keys
+        target: /etc/ssh/keys
+      # Optional: keep /work on the host (survives "down").
+      # - type: bind
+      #   source: ./work
+      #   target: /work
+
+volumes:
+  keys:
