@@ -7,7 +7,9 @@
 // The machine is rk86_machine16 (16 MHz, 50 Hz native frames); compile with -I <core>/src/sim/machine16
 // (cpu_power_up.vh, included by power_up.vh).
 // Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex and
-// cursor.txt (the cursor cell for frame_compare.py --cursor);
+// cursor.txt (the cursor cell for frame_compare.py --cursor); +cart_size=N: the ROM disk slot size
+// (default 32256, Kiselev's image); game also reads cartridge2.hex (a 64 KB game disk) and reloads
+// the ROM disk slot with it while the core runs, as the Pocket menu does;
 // k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
 // and k1.log (STEP lines and, per capture, "STATE <n> <panel state hex> <green> <what>", the state
 // pocket_frame_video latched for that frame; scripts/k1/check_frames.py renders the model for it).
@@ -55,7 +57,10 @@ pocket_system sys(.clk_74a(clk), .clk_core_12288(clk_av), .pll_locked(pll_locked
 
 reg [7:0] monitor [0:2047];
 reg [7:0] font [0:1023];
-reg [7:0] cart [0:32255];
+reg [7:0] cart [0:65535];            // cartridge.hex: the image, FF-padded to 64 KB (run_sim.py)
+integer cart_size;                      // +cart_size: the ROM disk slot size (default Kiselev's 32256)
+reg [7:0] cart2 [0:65535];           // game: cartridge2.hex, the 64 KB game disk loaded by the reload
+integer cart2_size = 65536;
 reg frame [0:122399];
 reg capture_go = 1'b0, capturing = 1'b0, capture_done = 1'b0;
 always @(posedge clk)
@@ -205,15 +210,31 @@ task load(input with_cart);
         slot(1, 1024);
         for (i = 0; i < 256; i = i + 1) bridge_write(32'h2100_0000 + 4*i, {font[4*i], font[4*i+1], font[4*i+2], font[4*i+3]});
         if (with_cart) begin
-            slot(2, 32256);
-            for (i = 0; i < 8064; i = i + 1) bridge_write(32'h2200_0000 + 4*i, {cart[4*i], cart[4*i+1], cart[4*i+2], cart[4*i+3]});
+            slot(2, cart_size);
+            for (i = 0; i < cart_size / 4; i = i + 1) bridge_write(32'h2200_0000 + 4*i, {cart[4*i], cart[4*i+1], cart[4*i+2], cart[4*i+3]});
         end
         complete = 1'b1; guard = 0;
         while (!sys.assets_valid && guard < 200000) begin @(negedge clk); guard = guard + 1; end
         if (!sys.assets_valid) fail("assets not valid");
         for (i = 0; i < 2048; i = i + 1) if (sys.rk86.mem.ram[32768 + i] !== monitor[i]) fail("the monitor is not in the memory at 8000");
         for (i = 0; i < 1024; i = i + 1) if (sys.rk86.font_rom.mem[i] !== font[i]) fail("the font is not loaded");
-        if (with_cart) for (i = 0; i < 32256; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart[i]) fail("the ROM disk is not loaded");
+        if (with_cart) for (i = 0; i < cart_size; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart[i]) fail("the ROM disk is not loaded");
+    end
+endtask
+// a ROM disk reload from the Pocket menu (data.json slot 2, parameters 75): the core held in reset
+// (core_bridge_cmd reset_n low), slot 2 requested with the new size and written, then Reset Exit;
+// the RAM is kept (no cold clear), the machine restarts to the monitor. cart2 becomes the image the
+// RAM checks compare with.
+task reload_slot2;
+    begin
+        @(negedge clk) reset_n = 1'b0; repeat (20) @(negedge clk);
+        slot(2, cart2_size);
+        for (i = 0; i < cart2_size / 4; i = i + 1)
+            bridge_write(32'h2200_0000 + 4*i, {cart2[4*i], cart2[4*i+1], cart2[4*i+2], cart2[4*i+3]});
+        for (i = 0; i < cart2_size; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart2[i]) fail("reload: the ROM disk is not the new image");
+        for (i = 0; i < 65536; i = i + 1) cart[i] = cart2[i];
+        reset_n = 1'b1;
+        wait_fetch(16'hFE63, FE63_FRAMES, "reload: no keyboard loop after the restart");
     end
 endtask
 task wait_fetch(input [15:0] a, input integer max_frames, input [8*40-1:0] what);
@@ -468,6 +489,17 @@ task to_menu;
         wait_fetch(16'h741C, MENU_FRAMES, "no ROM disk menu");
     end
 endtask
+// XONIX by menu key 4 of Kiselev's ROM disk: ROM 5500-5FFF copied to 0000, started there and running
+task run_xonix;
+    begin
+        type_char("4");
+        wait_fetch(16'h0000, copy_frames(2816), "XONIX did not start at 0000");
+        check_ram(0, 21760, 2816, "XONIX image differs at its start");
+        n = 0; start_frame = frames;
+        while (frames < start_frame + 3) begin @(posedge clk); if (sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a < 16'h0B00) n = n + 1; end
+        if (n < 1000) fail("XONIX does not run");
+    end
+endtask
 // frame.hex, and cursor.txt ("<col> <row>", the last Load Cursor) when the monitor has set the cursor
 task capture;
     integer f;
@@ -550,7 +582,10 @@ endtask
 
 initial begin
     if (!$value$plusargs("scenario=%s", scenario)) scenario = "boot";
+    if (!$value$plusargs("cart_size=%d", cart_size)) cart_size = 32256;
+    if (cart_size % 4 != 0 || cart_size > 65536) fail("cart_size: a multiple of 4, at most 65536");
     $readmemh("monitor.hex", monitor); $readmemh("font.hex", font); $readmemh("cartridge.hex", cart);
+    if (scenario == "game") $readmemh("cartridge2.hex", cart2);
     force sys.rk86.hid_cols = tb_hid_cols; force sys.rk86.hid_mods = tb_hid_mods;
     `ZERO_UP(sys.rk86.machine)
     if (scenario == "powerup") begin
@@ -570,7 +605,7 @@ initial begin
         $display("PASS %0s: assets, persisted interact values, keyboard loop at FE63, frame period, frame.hex", scenario);
     end else if (scenario == "nocart") begin
         boot(1'b0, 2'd0);
-        if (sys.rk86.romdisk.mem[0] !== 8'hFF || sys.rk86.romdisk.mem[32767] !== 8'hFF) fail("no ROM disk: its memory is not FF");
+        if (sys.rk86.romdisk.mem[0] !== 8'hFF || sys.rk86.romdisk.mem[32767] !== 8'hFF || sys.rk86.romdisk.mem[65535] !== 8'hFF) fail("no ROM disk: its memory is not FF");
         // A ROM disk read as the monitor's FA68 does it (the loader's copy, R0,1FF,0): control word
         // 90h to A003, the address to A001 (low) and A002 (high), then A000. The address is the first
         // one above 0000 where the image (cartridge.hex, not loaded here) is not FF, so the same read
@@ -628,18 +663,21 @@ initial begin
         wait_fetch(16'hFE63, LOOP_FRAMES, "the machine stopped after the watchdog");
         $display("PASS watchdog: PLL reset after the timeout, relock, machine and assets kept, video restarted");
     end else if (scenario == "menu") begin
-        boot(1'b1, 2'd0); to_menu;
+        boot(1'b1, 2'd0);
+        if (sys.rk86.romdisk_64k !== 1'b0) fail("menu: Kiselev's 32256-byte image, the 64 KB wiring chosen");
+        to_menu;
         wait_frames(2);
         capture;
         $display("PASS menu: R0,1FF,0 copied the loader, G0 reached the ROM disk menu, frame.hex");
     end else if (scenario == "xonix") begin
-        boot(1'b1, 2'd0); to_menu; type_char("4");
-        wait_fetch(16'h0000, copy_frames(2816), "XONIX did not start at 0000");
-        check_ram(0, 21760, 2816, "XONIX image differs at its start");
-        n = 0; start_frame = frames;
-        while (frames < start_frame + 3) begin @(posedge clk); if (sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a < 16'h0B00) n = n + 1; end
-        if (n < 1000) fail("XONIX does not run");
-        $display("PASS xonix: copied to 0000, started there and running");
+        boot(1'b1, 2'd0);
+        if (sys.rk86.romdisk_64k !== 1'b0) fail("xonix: Kiselev's 32256-byte image, the 64 KB wiring chosen");
+        to_menu;                         // checkpoint 1: the loader copied by R0,1FF,0, G0 reached the menu
+        wait_frames(2);
+        capture;                         // checkpoint 2: frame.hex (run_sim.py compares it with rom-disk-menu.hex)
+        $display("INFO: xonix: the ROM disk menu reached, frame.hex written");
+        run_xonix;                       // checkpoint 3: XONIX by key 4 copied to 0000, started there and running
+        $display("PASS xonix: the ROM disk menu (frame.hex), then XONIX by key 4 copied to 0000, started there and running");
     end else if (scenario == "dpddt") begin
         boot(1'b1, 2'd0); to_menu; type_char("3");
         wait_ram(16'h6400, 16896, 256, copy_frames(256), "DP/DDT was not loaded at 6400");
@@ -667,7 +705,15 @@ initial begin
     end else if (scenario == "game") begin
         if (!$value$plusargs("game_key=%d", game_key) || !$value$plusargs("game_ram=%d", game_ram) ||
             !$value$plusargs("game_rom=%d", game_rom) || !$value$plusargs("game_len=%d", game_len)) fail("game: plusargs");
-        boot(1'b1, 2'd0); to_menu; type_char(game_key[7:0]);
+        if (game_rom < 32768) fail("game: the entry is not above 8000h (the ROM A15 line untested)");
+        boot(1'b1, 2'd0);                          // checkpoint 1: Kiselev's image, the 32 KB wiring
+        if (sys.rk86.romdisk_64k !== 1'b0) fail("game: Kiselev's 32256-byte image, the 64 KB wiring chosen");
+        sys.rk86.mem.ram[16'h5000] = 8'h5A;          // a marker the reload must keep (RAM kept)
+        reload_slot2;                                // checkpoint 2: the reload, the 64 KB wiring, the RAM kept
+        if (sys.rk86.romdisk_64k !== 1'b1) fail("game: reload of a 64 KB image, the 64 KB wiring not chosen");
+        if (sys.rk86.mem.ram[16'h5000] !== 8'h5A) fail("game: the RAM was not kept by the ROM disk reload");
+        $display("INFO: game: ROM disk reloaded with the 64 KB disk, the 64 KB wiring chosen, the RAM kept, monitor at FE63");
+        to_menu; type_char(game_key[7:0]);           // checkpoint 3: the menu, then the game from above 8000h
         wait_fetch(game_ram[15:0], copy_frames(game_len), "the game did not start at its load address");
         check_ram(game_ram, game_rom, game_len, "the game image differs at its start");
         n = 0; start_frame = frames;
@@ -676,7 +722,7 @@ initial begin
             if (sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a >= game_ram && sys.rk86.machine.cpu_a < game_ram + game_len) n = n + 1;
         end
         if (n < 1000) fail("the game does not run");
-        $display("PASS game: menu key %0s, copied to %h, started there and running", game_key[7:0], game_ram[15:0]);
+        $display("PASS game: Kiselev's image (32 KB wiring), reloaded with the 64 KB disk (64 KB wiring, RAM kept), menu key %0s, copied to %h, started there and running", game_key[7:0], game_ram[15:0]);
     end else if (scenario == "keytap") begin
         // Key tap timing at the 16 MHz machine (pocket_keyboard holds a tapped key MIN_HOLD_MS, a value
         // from the 1.43 MHz machine): with Keys = Digits 7-8-9-6, a D-pad Left held exactly 80 ms (7)

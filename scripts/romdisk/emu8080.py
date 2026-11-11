@@ -240,7 +240,7 @@ def run_menu(rom, keys, max_steps=5_000_000, ram=None, start=0):
                 n = de - hl + 1
                 for k in range(n):
                     o = hl + k
-                    ram[(bc + k) & 0xFFFF] = rom[o] if o < 0x7E00 and o < len(rom) else 0xFF
+                    ram[(bc + k) & 0xFFFF] = rom[o] if o < len(rom) else 0xFF
                 cpu.set_pair(2, de)
                 cpu.set_pair(0, bc + n)
             cpu.pc = cpu.pop()

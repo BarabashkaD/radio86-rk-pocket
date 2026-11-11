@@ -49,17 +49,22 @@ def core_files(prj='rk86_machine.prj', only=None):
     return files
 
 
-HEX = {  # name in the run directory: (source, size)
-    'monitor.hex': (lambda: os.path.join(CORE, 'roms', 'BIOS.BIN'), 2048),
-    'font.hex': (lambda: os.path.join(CORE, 'roms', 'FONT.BIN'), 1024),
-    'cartridge.hex': (lambda: os.path.join(ROOT, 'build', 'assets', 'romdisk.bin'), 32256),
+HEX = {  # name in the run directory: (source, accepted sizes, written size: the rest FF)
+    'monitor.hex': (lambda: os.path.join(CORE, 'roms', 'BIOS.BIN'), (2048,), 2048),
+    'font.hex': (lambda: os.path.join(CORE, 'roms', 'FONT.BIN'), (1024,), 1024),
+    # Kiselev's ROM disk, or a 64 KB game disk (tb_system: +cart_size=65536)
+    'cartridge.hex': (lambda: os.path.join(ROOT, 'build', 'assets', 'romdisk.bin'), (32256, 65536), 65536),
+    # game: the 64 KB game disk the scenario reloads into the ROM disk slot (build_romdisks.py builds it)
+    'cartridge2.hex': (lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-2.bin'), (65536,), 65536),
 }
 
 TESTS = {
     'cart_ppi': dict(top='tb_cart_ppi',
                      files=lambda: sim('unit/tb_cart_ppi.v') + rtl('pocket_cart_ppi.v')
                      + core_files('rk86_machine16.prj', only=('k580vv55.v',)),
-                     negatives=[('cart_pc7_ignored', 'ERROR: cart_ppi: pc7')]),
+                     negatives=[('cart_pc7_ignored', 'ERROR: cart_ppi: pc7'),
+                                ('cart_wide_no_a15', 'ERROR: cart_ppi: wide reset: rom address'),
+                                ('cart_wide_pc7_off', 'ERROR: cart_ppi: wide reset: port A')]),
     'audio': dict(top='tb_native_audio', files=sim('unit/tb_native_audio.v') + rtl('pocket_audio.v')),
     'bus_cdc': dict(top='tb_bus_cdc', files=sim('unit/tb_bus_cdc.v') + rtl('pocket_bus_cdc.v'),
                     negatives=[('bus_cdc/copy_without_req', 'ERROR: copied a held value')]),
@@ -76,7 +81,9 @@ TESTS = {
                      negatives=[('k1_panel/labels_ignore_sh', 'ERROR: pixel')]),
     'slot_loader': dict(top='tb_slot_loader', files=sim('unit/tb_slot_loader.v') + rtl('pocket_slot_loader.v', 'pocket_rom8.v'),
                         negatives=[('slot_loader/size_not_limited', 'byte beyond the size written'),
-                                   ('slot_loader/lane_order', 'byte order')]),
+                                   ('slot_loader/lane_order', 'byte order'),
+                                   ('slot_loader/romdisk_32k_only', 'ERROR: slot 2 size 32769'),
+                                   ('slot_loader/wide_at_32k', 'romdisk_64k at 32768 bytes')]),
     'memory': dict(top='tb_pocket_memory', files=sim('unit/tb_pocket_memory.v') + rtl('pocket_memory.v'),
                    negatives=[('write_level', 'cpu_write is not one clk'),
                               ('write_during_aen', 'RAM changed during aen'),
@@ -126,7 +133,7 @@ def system(scenario, compare=None, cart=None, extra=None, negatives=()):
                 files=lambda: sim('system/tb_system.v') + SYSTEM_RTL + core_files('rk86_machine16.prj'))
 
 
-def game_plusargs(disk=9, file='XONIX1.RKR'):
+def game_plusargs(disk=2, file='XONIX1.RKR'):
     path = os.path.join(ROOT, 'build', 'romdisks', 'romdisks.json')
     if not os.path.exists(path):
         raise ValueError('%s missing' % path)
@@ -145,11 +152,17 @@ TESTS.update({
     'reset': system('reset'),
     'relock': system('relock'),
     'system_watchdog': system('watchdog'),
-    'menu': system('menu', ('frame.hex', 'fpga/sim/golden/rom-disk-menu.hex')),
-    'xonix': system('xonix'),
+    # kept, skipped unless named: xonix captures the same menu frame before its program (the maintainer, 2026-11-11)
+    'menu': dict(system('menu', ('frame.hex', 'fpga/sim/golden/rom-disk-menu.hex')),
+                 skip='xonix captures the same menu frame first; run it by name'),
+    # the ROM disk menu frame (vs rom-disk-menu.hex), then XONIX from the menu
+    'xonix': system('xonix', ('frame.hex', 'fpga/sim/golden/rom-disk-menu.hex')),
     # local only (slow; the disks are built by scripts/romdisk/build_romdisks.py, not fetched)
-    'game': system('game', cart=lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-9.bin'), extra=game_plusargs),
-    'dpddt': system('dpddt'),
+    # boots with Kiselev's romdisk.bin, then reloads the ROM disk slot with disk 2 (cartridge2.hex): XONIX1
+    # above 8000h (the 64 KB wiring, PC7 = ROM A15)
+    'game': dict(system('game', extra=game_plusargs), hex=['monitor.hex', 'font.hex', 'cartridge.hex', 'cartridge2.hex']),
+    # kept, skipped unless named: xonix covers the same ROM disk path (the maintainer, 2026-11-11)
+    'dpddt': dict(system('dpddt'), skip='xonix covers the same ROM disk path; run it by name'),
     # kept, but skipped unless named: the D-pad control of this TETRIS has a known problem (the maintainer,
     # 2026-11-11); run it with: python -B fpga/sim/run_sim.py tetris
     'tetris': dict(system('tetris'), skip='known D-pad control problem of this TETRIS; run it by name'),
@@ -162,12 +175,13 @@ TESTS.update({
 
 
 def write_hex(name, out, path=None):
-    src, size = HEX[name]
+    src, sizes, written = HEX[name]
     path = path or src()
     with open(path, 'rb') as f:
         data = f.read()
-    if len(data) != size:
-        raise SystemExit('ERROR: %s is %d bytes, expected %d' % (path, len(data), size))
+    if len(data) not in sizes:
+        raise SystemExit('ERROR: %s is %d bytes, expected %s' % (path, len(data), ' or '.join(map(str, sizes))))
+    data += b'\xff' * (written - len(data))
     with open(os.path.join(out, name), 'w', encoding='ascii', newline='\n') as f:
         f.write(''.join('%02x\n' % b for b in data))
 

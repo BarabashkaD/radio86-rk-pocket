@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_cart_ppi.v b/fpga/rtl/pocket_cart_ppi.v
+index 915ae42..7956418 100644
+--- a/fpga/rtl/pocket_cart_ppi.v
++++ b/fpga/rtl/pocket_cart_ppi.v
+@@ -27,7 +27,7 @@ wire [7:0] pa_o, pb_o, pc_o, pc_oe;
+ wire pa_oe, pb_oe;
+ wire [7:0] pb_pin = pb_oe ? pb_o : 8'hFF;
+ wire [7:0] pc_pin = (pc_oe & pc_o) | ~pc_oe;
+-assign rom_address = {wide & pc_pin[7], pc_pin[6:0], pb_pin};
++assign rom_address = {1'b0, pc_pin[6:0], pb_pin};
+ wire [7:0] pa_pin = !wide && pc_pin[7] ? 8'hFF : rom_data;   // 32 KB: PC7 low enables the ROM's outputs
+ k580vv55 ppi(.clk(clk), .reset(reset), .cs_n(cs_n), .rd_n(rd_n), .wr_n(wr_n), .a(a), .d_i(d_i), .d_o(d_o),
+     .pa_i(pa_pin), .pa_o(pa_o), .pa_oe(pa_oe), .pb_i(8'hFF), .pb_o(pb_o), .pb_oe(pb_oe),

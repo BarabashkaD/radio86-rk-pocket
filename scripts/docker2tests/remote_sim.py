@@ -29,7 +29,8 @@ into <repo>/build/sim/remote16/<run id>/<jid>/out/ (the folder is removed at the
 Compile copies of patched files live in <jid>/copy/ of the same folder.
 Pass rule: vvp exit 0, a line starting with PASS, no line starting with ERROR or containing FATAL
 (for pocket then frame_compare, if the test has 'compare'). A fault is caught when its run fails and
-its output contains the expected text. A mutant is CAUGHT (first ERROR / FATAL line printed) or
+the expected text is in its output (pocket, as run_sim.py) or in its first ERROR / FATAL line (fork, as
+run_machine16_sim.py; anywhere in the output for an entry marked 'anywhere'; '*' matches any characters). A mutant is CAUGHT (first ERROR / FATAL line printed) or
 SURVIVED; mutants do not change the exit code.
 """
 import argparse
@@ -64,6 +65,7 @@ fi
 [ -n "$(find $L -maxdepth 0 -mmin +2 2>/dev/null)" ] && rmdir $L 2>/dev/null
 if ! mkdir $L 2>/dev/null; then echo LOCKED; exit 0; fi
 find $S -type f -mmin +@STALE@ -delete
+rm -f $S/@R@   # this run's own claim from an attempt that timed out: not counted
 sum=$(cat $S/* 2>/dev/null | awk '{s+=$2} END{print s+0}')
 if [ $((sum + @W@)) -le @C@ ]; then echo "@R@ @W@ $(date +%s)" > $S/@R@; rmdir $L; echo GOT
 else rmdir $L; echo FULL $sum; fi'''
@@ -204,9 +206,11 @@ def main():
         test = R.tests[name]
         jobs.append(('%s__main' % name, name, 'main', None, None))
         if a.negative:
-            for fault, expected in test.get('negatives', []):
+            for entry in test.get('negatives', []):   # (fault, expected) or (fault, expected, 'anywhere')
+                fault, expected = entry[0], entry[1]
+                anywhere = pocket or (len(entry) > 2 and entry[2] == 'anywhere')
                 jobs.append(('%s__f_%s' % (name, fault.replace('/', '_')), name, 'fault',
-                             os.path.join(R.neg_dir, fault + '.patch'), expected))
+                             os.path.join(R.neg_dir, fault + '.patch'), (expected, anywhere)))
         for i, p in enumerate(a.mutant):
             jobs.append(('%s__m%02d' % (name, i), name, 'mutant', os.path.abspath(p), None))
     fault_name = {j[0]: j[3] and os.path.basename(j[3])[:-6] for j in jobs}
@@ -340,9 +344,18 @@ def main():
                 '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=' + known]
         remote = '%s@%s' % (a.user, a.host)
 
-        def ssh(cmd, timeout, binary=False, data=None):
-            return subprocess.run(['ssh'] + opts + ['-p', str(a.port), remote, cmd],
-                                  capture_output=True, timeout=timeout, text=not binary, input=data)
+        def ssh(cmd, timeout, binary=False, data=None, tries=4):
+            # a busy container answers slowly: retry a command that timed out (every caller's command
+            # is safe to repeat, except the start, which passes tries=1 and checks run.pid itself)
+            for n in range(tries):
+                try:
+                    return subprocess.run(['ssh'] + opts + ['-p', str(a.port), remote, cmd],
+                                          capture_output=True, timeout=timeout, text=not binary, input=data)
+                except subprocess.TimeoutExpired:
+                    if n == tries - 1:
+                        raise
+                    print('ssh: no answer in %d s, again in 30 s' % timeout, flush=True)
+                    time.sleep(30)
 
         if not runnable:
             print('ERROR: nothing to run')
@@ -389,9 +402,25 @@ def main():
         t2 = time.time()
         # detached: a dropped ssh session does not kill a run of several hours; polled once a minute
         # the background job alone, all three streams redirected, so the ssh channel closes at once
-        r = ssh('cd %s || exit 1; (setsid nohup sh run.sh %d > run.out 2>&1 < /dev/null &); echo started' % (rdir, width), 60)
-        if r.returncode or 'started' not in (r.stdout or ''):
-            print('ERROR: start: %s' % (r.stderr or r.stdout).strip())
+        # a busy container can hold the channel past the timeout although the run started: then check run.pid
+        try:
+            r = ssh('cd %s || exit 1; (setsid nohup sh run.sh %d > run.out 2>&1 < /dev/null &); echo started' % (rdir, width), 120,
+                    tries=1)
+            started, why = not r.returncode and 'started' in (r.stdout or ''), (r.stderr or r.stdout or '').strip()
+        except subprocess.TimeoutExpired:
+            started, why = False, 'no answer in 120 s'
+        for _ in range(5 if not started else 0):
+            time.sleep(20)
+            try:
+                p = ssh('[ -s %s/run.pid ] && echo started' % rdir, 60)
+            except subprocess.TimeoutExpired:
+                continue
+            if 'started' in (p.stdout or ''):
+                print('start: %s; run.pid found, the run started' % why)
+                started = True
+                break
+        if not started:
+            print('ERROR: start: %s' % why)
             return 1
         njobs = len(runnable)
         while True:
@@ -464,9 +493,11 @@ def main():
                 print(text.rstrip()[-3000:])
                 failed += 1
         elif kind == 'fault':
-            caught = (not ok) and expected in text
+            want, anywhere = expected
+            contains = getattr(R.mod, 'contains', None) or (lambda s, e: e in s)
+            caught = (not ok) and contains(text if anywhere else first, want)
             print('%s: negative %s %s' % (name, fault_name[jid], 'FAILED as expected' if caught else
-                                          'NOT CAUGHT (expected: %s)' % expected))
+                                          'NOT CAUGHT (expected%s: %s)' % (' anywhere' if anywhere else '', want)))
             if not caught:
                 print('  first error: %s' % (first or '(none)'))
                 failed += 1

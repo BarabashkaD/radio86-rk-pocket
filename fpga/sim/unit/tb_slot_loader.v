@@ -3,26 +3,28 @@
 // pocket_slot_loader with the font and ROM disk memories (pocket_rom8) and a monitor byte model:
 // the requests (ids, sizes, only while quiesced), 4 byte writes per word in byte order, any order of
 // words, bytes beyond the requested size dropped, writes while running dropped, the ROM disk read
-// port with its tag, the FILL of an unwritten memory, assets_valid only after allcomplete.
+// port with its tag, the FILL of an unwritten memory, assets_valid only after allcomplete; the ROM disk up to
+// 65536 bytes and romdisk_64k (the 64 KB wiring) only above 32768.
 module tb_slot_loader;
 reg clk = 1'b0;
 always #5 clk = ~clk;
 reg reset_n = 1'b0, quiesced = 1'b1, request = 1'b0, complete = 1'b0, wr = 1'b0;
 reg [15:0] id = 16'd0;
 reg [31:0] size = 32'd0, address = 32'd0, data = 32'd0;
-reg [14:0] ra = 15'd0;
-wire ack, ok, valid, monitor_we, font_we, romdisk_we;
-wire [14:0] byte_a, tag, fresh_tag;
+reg [15:0] ra = 16'd0;
+wire ack, ok, valid, monitor_we, font_we, romdisk_we, romdisk_64k;
+wire [15:0] byte_a, tag, fresh_tag;
 wire [7:0] byte_d, rd, fresh_rd;
 pocket_slot_loader dut(.clk(clk), .reset_n(reset_n), .machine_quiesced(quiesced),
     .request_write(request), .request_id(id), .request_size(size), .request_ack(ack), .request_ok(ok),
     .allcomplete(complete), .bridge_wr(wr), .bridge_address(address), .bridge_data(data), .assets_valid(valid),
-    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .byte_a(byte_a), .byte_d(byte_d));
+    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .romdisk_64k(romdisk_64k), .byte_a(byte_a),
+    .byte_d(byte_d));
 pocket_rom8 #(.AW(10), .FILL(8'h00)) font_rom(.clk(clk), .we(font_we), .wa(byte_a[9:0]), .wd(byte_d),
     .ra(10'd0), .rd(), .tag());
-pocket_rom8 #(.AW(15), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
+pocket_rom8 #(.AW(16), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
     .ra(ra), .rd(rd), .tag(tag));
-pocket_rom8 #(.AW(15), .FILL(8'hFF)) fresh(.clk(clk), .we(1'b0), .wa(15'd0), .wd(8'h00),
+pocket_rom8 #(.AW(16), .FILL(8'hFF)) fresh(.clk(clk), .we(1'b0), .wa(16'd0), .wd(8'h00),
     .ra(ra), .rd(fresh_rd), .tag(fresh_tag));
 reg [7:0] monitor [0:2047];
 integer i;
@@ -57,10 +59,15 @@ endfunction
 initial begin
     repeat (3) @(negedge clk); reset_n = 1'b1; @(negedge clk);
     // refused: an unknown slot, sizes above the ranges
-    slot(3, 4, 1'b0); slot(0, 2049, 1'b0); slot(1, 1025, 1'b0); slot(2, 32769, 1'b0);
-    // the ROM disk: 32768 bytes, the words in descending order, one written twice
-    slot(2, 32768, 1'b1);
-    for (i = 8191; i >= 0; i = i - 1) begin
+    slot(3, 4, 1'b0); slot(0, 2049, 1'b0); slot(1, 1025, 1'b0); slot(2, 65537, 1'b0);
+    if (romdisk_64k !== 1'b0) fail("romdisk_64k without a ROM disk");
+    // the ROM disk size picks the wiring: above 32768 bytes the 64 KB one
+    slot(2, 32256, 1'b1); if (romdisk_64k !== 1'b0) fail("romdisk_64k at 32256 bytes");
+    slot(2, 32769, 1'b1); if (romdisk_64k !== 1'b1) fail("romdisk_64k not set at 32769 bytes");
+    slot(2, 32768, 1'b1); if (romdisk_64k !== 1'b0) fail("romdisk_64k at 32768 bytes");
+    // the ROM disk: 65536 bytes, the words in descending order, one written twice
+    slot(2, 65536, 1'b1); if (romdisk_64k !== 1'b1) fail("romdisk_64k not set at 65536 bytes");
+    for (i = 16383; i >= 0; i = i - 1) begin
         word(32'h2200_0000 + 4 * i, wpat(2, 4 * i));
         if (i == 12) word(32'h2200_0000 + 4 * i, wpat(2, 4 * i));
     end
@@ -83,20 +90,20 @@ initial begin
         if (monitor[i] !== pat(0, i)) begin $display("ERROR: monitor byte %0h is %h", i, monitor[i]); $finish; end
     for (i = 0; i < 1022; i = i + 1)
         if (font_rom.mem[i] !== pat(1, i)) begin $display("ERROR: font byte %0h is %h", i, font_rom.mem[i]); $finish; end
-    for (i = 0; i < 32768; i = i + 1)
+    for (i = 0; i < 65536; i = i + 1)
         if (romdisk.mem[i] !== pat(2, i)) begin $display("ERROR: ROM disk byte %0h is %h", i, romdisk.mem[i]); $finish; end
     // the read port: data and tag 1 clk after the address; an unwritten memory reads its FILL
-    for (i = 0; i < 32768; i = i + 97) begin
+    for (i = 0; i < 65536; i = i + 97) begin
         @(negedge clk); ra = i; @(negedge clk);
-        if (tag !== i[14:0] || rd !== pat(2, i)) fail("ROM disk read port: data or tag");
-        if (fresh_tag !== i[14:0] || fresh_rd !== 8'hFF) fail("an unwritten ROM disk does not read FF");
+        if (tag !== i[15:0] || rd !== pat(2, i)) fail("ROM disk read port: data or tag");
+        if (fresh_tag !== i[15:0] || fresh_rd !== 8'hFF) fail("an unwritten ROM disk does not read FF");
     end
     // the machine running: requests refused, bridge words dropped
     quiesced = 1'b0;
     slot(1, 1024, 1'b0);
     word(32'h2100_0000, 32'hDEADBEEF);
     if (font_rom.mem[0] !== pat(1, 0)) fail("a write while running reached the font");
-    $display("PASS slot_loader: requests and sizes, 4 byte writes per word in order, any word order, size limit, writes while running dropped, read port and tag, FILL, assets_valid");
+    $display("PASS slot_loader: requests and sizes, the 64 KB ROM disk and its wiring flag, 4 byte writes per word in order, any word order, size limit, writes while running dropped, read port and tag, FILL, assets_valid");
     $finish;
 end
 endmodule

@@ -38,6 +38,7 @@ foreach f {rtl/pocket_machine_cdc.sdc rtl/pocket_audio_cdc.sdc rtl/pocket_bus_cd
     set_global_assignment -name SDC_FILE [file join $fpga $f]
 }
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE OFF
-# pocket_memory clears its 32768-byte RAM in an initial loop (the default limit is 5000 iterations)
-set_global_assignment -name VERILOG_CONSTANT_LOOP_LIMIT 40000
+# initial loops: pocket_memory clears its 32768-byte RAM, pocket_rom8 fills the 65536-byte ROM disk with FF
+# (the default limit is 5000 iterations)
+set_global_assignment -name VERILOG_CONSTANT_LOOP_LIMIT 70000
 project_close

@@ -10,13 +10,13 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 
 ## Status
 
-- Latest release: [0.8.1](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.8.1). Changes: [CHANGELOG.md](CHANGELOG.md).
-- 0.8.1: the original's 16 MHz timing. 0.8.0 run on a Pocket by the maintainer (2026-11-11), Tetris included; 0.8.1 adds the final review's fixes.
+- Latest release: [0.8.2](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.8.2). Changes: [CHANGELOG.md](CHANGELOG.md).
+- 0.8.2: ROM disk images up to 64 KB, five 64 KB game disks. 0.8.1: the original's 16 MHz timing; 0.8.0 run on a Pocket by the maintainer (2026-11-11), Tetris included.
 
 ## Features
 
 - The original's timing: 16 MHz timebase, CPU 1.778 MHz, 8 MHz dots, 50 Hz frames. CPU, DMA, CRT controller and PPI follow their data sheets; the video DMA takes CPU time as on the original ([fpga/README.md](fpga/README.md#the-16-mhz-machine)).
-- ROM disk with a program menu, and 9 game disks with 48 games, in the package. Any ROM disk image up to 32768 bytes; reloadable from the core's menu.
+- ROM disk with a program menu, and 5 game disks (64 KB each) with 48 games, in the package. Any ROM disk image up to 65536 bytes; reloadable from the core's menu.
 - On-screen keyboard (L+R): the 67 real keys, LAT and RUS, Shift and Ctrl, three palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or A B X Y.
 - Screen: 408 x 300 at 60 Hz, about 25 picture updates per second. Sound: the beeper (INTE), 48 kHz.
@@ -29,13 +29,13 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 2. Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` on the SD card.
 3. Unzip onto the SD card root. The core appears as "Radio-86RK" (category Computer).
 
-`Assets/radio86rk/BarabashkaD.Radio86RK/` holds `monitor.bin` and `font.bin` (required), `romdisk.bin` (optional; without it every ROM disk byte reads FF), the game disks `romdisk-1.bin` to `romdisk-9.bin` and `romdisks.txt`. Files are loaded as they are, with no checks (monitor up to 2048 bytes, font 1024, ROM disk 32768).
+`Assets/radio86rk/BarabashkaD.Radio86RK/` holds `monitor.bin` and `font.bin` (required), `romdisk.bin` (optional; without it every ROM disk byte reads FF), the game disks `romdisk-1.bin` to `romdisk-5.bin` and `romdisks.txt`. Files are loaded as they are, with no checks (monitor up to 2048 bytes, font 1024, ROM disk 65536).
 
 To change the ROM disk while the core runs: in the core's menu, load the ROM disk slot again and pick a `.bin` file. The machine restarts with memory kept. At the next start `romdisk.bin` is loaded again.
 
 ## ROM disk
 
-The ROM disk is a 32 KB memory on the ports of the second 8255 (the A000-BFFF block), wired as in Sergey Kiselev's re-make. `romdisk.bin` holds BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER, DP/DDT, Xonix, Othello and Tetris.
+The ROM disk is a memory on the ports of the second 8255 (the A000-BFFF block). An image up to 32 KB is wired as in Sergey Kiselev's re-make (PC7 switches the ROM on); a larger one, up to 64 KB, as a 64 KB ROM (port B and port C the address, PC7 = A15). `romdisk.bin` holds BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER, DP/DDT, Xonix, Othello and Tetris.
 
 1. Open the on-screen keyboard (L+R); D-pad selects, B presses.
 2. Type `R0,1FF,0` and CR (X), then `G0` and CR. The menu appears.
@@ -48,7 +48,7 @@ The ROM disk is a 32 KB memory on the ports of the second 8255 (the A000-BFFF bl
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-9.bin`: the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `romdisks.txt` and the core's info list the games.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `romdisks.txt` and the core's info list the games.
 
 - Load a disk from the core's menu, or copy it as `romdisk.bin`.
 - `R0,1FF,0`, `G0`: keys `0`-`9`, then `A`-`Y`; `Z` clears 0000-73FF. Another game: Reset, then `R0,1FF,0`, `G0`, or `G7416` if the loader at 7400-75FF is intact.

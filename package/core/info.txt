@@ -9,7 +9,7 @@ Radio-86RK for Analogue Pocket: the original's 16 MHz timing, CPU 1.778 MHz, 50 
 * Core Settings: Reset keeps memory, Cold boot clears it; Sound; Text colour.
 * ROM disk: type R0,1FF,0 then CR, then G0 then CR for its menu.
 * ROM disk items 3 (DP/DDT) and 4 (Xonix) overwrite the menu loader, as on the real machine; use Reset.
-* Another ROM disk (.bin, up to 32768 bytes) can be loaded from the core's menu; the machine restarts, memory kept.
+* Another ROM disk (.bin, up to 65536 bytes) can be loaded from the core's menu; the machine restarts, memory kept.
 * How to change the ROM disk and the programs of each disk: romdisks.txt in Assets/radio86rk/BarabashkaD.Radio86RK.
 * No Memories (savestates) and no sleep.
 Credits: Radio-86RK replica by Dmitry Tselikov; Karabas core by Andy Karpov and Oleh Chastukhin; ROM disk and keyboard design by Sergey Kiselev (https://github.com/skiselev/radio-86rk); 8080 model: Vslav (CC-BY 3.0, https://creativecommons.org/licenses/by/3.0/); 8257/8275 base: Apogee core by Sorgelig, D. Tselikov.
