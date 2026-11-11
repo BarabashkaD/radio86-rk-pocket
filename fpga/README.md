@@ -85,7 +85,7 @@ Origin, licence and changes of each file: the fork's [src/rtl/rk86_16/README.md]
 - **DMA** (the board's wiring): the 8257 uses only channel 2, memory to the 8275; its MEMR is not connected. While AEN is high the address bus carries the 8257's address, and the 8275 receives the byte of whatever is there (RAM, an 8255, the 8275, the monitor ROM): DMA reads are decoded like CPU reads. Bursts of 8 characters; the 8275 drops DRQ at every DMA write, so the 8257 makes one HOLD period per character. The CPU keeps about 45 % of the Φ cycles; programs run slower than in emulators that model continuous bursts.
 - **Memory**: one port at `bus_a` (CPU, or 8257 while AEN); the byte follows `bus_a` one `clk` later whatever the read strobe; written only by the CPU's WR, never during AEN or while the monitor is selected; no wait states.
 - **Start-up mapping**: from reset to the first read with A15 = 1 the monitor answers every address; RAM and devices are off.
-- **ROM disk**: `pocket_cart_ppi` in the A000-BFFF block: the fork's 8255 with Kiselev's ROM disk wiring: port B and PC0-PC6 = ROM A0-A14; port A = ROM data while PC7 is a low output; pins programmed as inputs float high (FF). Image from data slot 2. The 8255's A1, A0 come from the system address `bus_a`, also during DMA.
+- **ROM disk**: `pocket_cart_ppi` in the A000-BFFF block: the fork's 8255 with a ROM disk on its ports, the wiring chosen by the image size (`pocket_slot_loader` `romdisk_64k`). Up to 32768 bytes Kiselev's: port B and PC0-PC6 = ROM A0-A14; port A = ROM data while PC7 is a low output. Above it a 64 KB ROM: port B and port C = ROM A0-A15 (PC7 = A15), port A = ROM data, always on. Pins programmed as inputs float high (FF). Image from data slot 2 into a 64 KB memory. The 8255's A1, A0 come from the system address `bus_a`, also during DMA.
 - **Sound**: INTE only, as on both boards.
 
 ## Video
@@ -151,7 +151,7 @@ From `package/core/data.json`; sizes are maximums.
 |---|---|---|---|---|---|---|
 | 0 | Monitor | monitor.bin | 0x2000_0000 | up to 2048 | yes | 10: core-specific, read-only |
 | 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes | 10: core-specific, read-only |
-| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 32768 | no | 75: also user-reloadable, core reset while loading |
+| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 65536 | no | 75: also user-reloadable, core reset while loading |
 
 - Written byte by byte as they are (`pocket_slot_loader`); bytes beyond the requested size and writes while the core runs are dropped. No checks.
 - A ROM disk reload: APF holds the core in reset, writes the file, the machine restarts with the RAM kept (`pocket_cold_clear` runs only at the first boot and on Cold boot).

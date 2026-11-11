@@ -17,8 +17,9 @@ module radio86rk_pocket(
     input  wire  [1:0] palette,           // Keyboard colours (interact 0x118)
     input  wire        monitor_we,        // pocket_slot_loader: a monitor byte at byte_a[10:0]
     input  wire        font_we,           // a font byte at byte_a[9:0]
-    input  wire        romdisk_we,        // a ROM disk byte at byte_a[14:0]
-    input  wire [14:0] byte_a,
+    input  wire        romdisk_we,        // a ROM disk byte at byte_a[15:0]
+    input  wire        romdisk_64k,       // the ROM disk image is above 32 KB: the 64 KB wiring
+    input  wire [15:0] byte_a,
     input  wire  [7:0] byte_d,
     output wire        pixel_valid,
     output wire        pixel_data,
@@ -88,15 +89,16 @@ pocket_memory mem(.clk(clk), .reset(reset), .bus_a(bus_a), .cpu_do(cpu_do), .cpu
     .load_we(load_we), .load_a(load_a), .load_d(load_d), .rus_mode(rus_mode));
 pocket_rom8 #(.AW(10), .FILL(8'h00)) font_rom(.clk(clk), .we(font_we), .wa(byte_a[9:0]), .wd(byte_d),
     .ra(font_address), .rd(font_data), .tag());
-wire [14:0] cartridge_address;
+wire [15:0] cartridge_address;
 wire [7:0] cartridge_data;
-pocket_rom8 #(.AW(15), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
+pocket_rom8 #(.AW(16), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
     .ra(cartridge_address), .rd(cartridge_data), .tag());
 // the A000-BFFF block (second 8255; the machine's "window": ext_rd_n, ext_we_n, ext_di). The decoder looks
 // only at A15-A13 and gates ext_rd_n / ext_we_n, so CS is tied active. The 8255's pins A1, A0 pick one of
 // its 4 registers; they take address lines A1, A0 of bus_a (the CPU's address, the 8257's during DMA), so
 // the registers repeat every 4 bytes. The ROM disk memory starts at FF: with no image port A reads FF.
-pocket_cart_ppi cart(.clk(clk), .reset(reset), .cs_n(1'b0), .rd_n(ext_rd_n), .wr_n(ext_we_n),
+// The wiring follows the image size: up to 32 KB Kiselev's (PC7 the ROM enable), above it 64 KB (PC7 = A15).
+pocket_cart_ppi cart(.clk(clk), .reset(reset), .cs_n(1'b0), .rd_n(ext_rd_n), .wr_n(ext_we_n), .wide(romdisk_64k),
     .a(bus_a[1:0]), .d_i(cpu_do), .d_o(ext_di), .rom_address(cartridge_address), .rom_data(cartridge_data));
 
 //--------- keyboard --------------

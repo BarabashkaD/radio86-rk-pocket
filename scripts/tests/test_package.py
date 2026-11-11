@@ -187,11 +187,11 @@ class PackageTest(unittest.TestCase):
         if not os.path.isdir(package.PK_DIR):
             self.skipTest('core submodule not checked out')
         disks, files = package.game_disks(package.PK_DIR, {'romdisk.bin', 'monitor.bin', 'font.bin'})
-        self.assertEqual(list(files), ['romdisk-%d.bin' % n for n in range(1, 10)])
+        self.assertEqual(list(files), ['romdisk-%d.bin' % n for n in range(1, 6)])
         self.assertEqual([d['file'] for d in disks], list(files))
-        self.assertTrue(all(len(b) == 32256 for b in files.values()))
+        self.assertTrue(all(len(b) == 65536 for b in files.values()))
         self.assertEqual(sum(len(d['entries']) for d in disks), 48)
-        self.assertEqual(disks[0]['entries'][0]['title'], 'Шахматы')
+        self.assertEqual(disks[0]['entries'][1]['title'], 'Шахматы')
         with self.assertRaises(SystemExit):
             package.game_disks(package.PK_DIR, {'romdisk-3.bin'})
     def test_library_rejects_bad_updaters(self):

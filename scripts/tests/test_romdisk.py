@@ -157,16 +157,17 @@ class Build(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_romdisks.read_tape(tape(0, p)[:-3])
 
-    def test_the_nine_disks(self):
+    def test_the_five_disks(self):
         if not os.path.isdir(PK):
             self.skipTest('core submodule not checked out')
         disks = build_romdisks.build(PK)
-        self.assertEqual(len(disks), 9)
+        self.assertEqual(len(disks), 5)
         files = sorted(e['file'] for d in disks for e in d['entries'])
         self.assertEqual(len(files), 48)
         self.assertEqual(len(set(files)), 48)
         for d in disks:
-            self.assertEqual(len(d['image']), 32256)
+            self.assertEqual(len(d['image']), 65536)
+            self.assertIn(b'ROM-DISK/64K GAMES %d/5' % d['disk'], d['image'][:0x200])
             for i, e in enumerate(d['entries']):
                 self.assertEqual(e['key'], loader.KEYS[i])
                 with open(os.path.join(PK, e['file']), 'rb') as f:
@@ -177,11 +178,14 @@ class Build(unittest.TestCase):
                 r = emu8080.run_menu(d['image'], e['key'])
                 self.assertEqual(r.pc, start, e['file'])
                 self.assertEqual(bytes(r.ram[start:start + len(payload)]), payload, e['file'])
-        names7 = [e['name'] for e in disks[6]['entries']]
-        self.assertIn('KRESTNO.GAM', names7)
-        self.assertIn('KRESTNO.RKR', names7)
-        self.assertEqual(disks[8]['entries'][11]['file'], 'XONIX1.RKR')
-        self.assertEqual(disks[8]['entries'][11]['key'], 'B')
+        # every disk uses its upper 32 KB (the 64 KB wiring, PC7 = ROM A15)
+        self.assertTrue(all(any(e['end'] >= 0x8000 for e in d['entries']) for d in disks))
+        names2 = [e['name'] for e in disks[1]['entries']]
+        self.assertIn('KRESTNO.GAM', names2)
+        self.assertIn('KRESTNO.RKR', names2)
+        # the system scenario game (fpga/sim/run_sim.py): XONIX1 on disk 2, above 8000h
+        xonix1 = next(e for e in disks[1]['entries'] if e['file'] == 'XONIX1.RKR')
+        self.assertGreaterEqual(xonix1['rom'], 0x8000)
 
 
 if __name__ == '__main__':

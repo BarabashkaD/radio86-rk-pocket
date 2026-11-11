@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.2 (2026-11-11)
+
+- ROM disk up to 64 KB: data slot 2 takes up to 65536 bytes into a 64 KB memory (32 more M10K blocks). The wiring follows the image size: up to 32768 bytes Kiselev's (PC7 = ROM enable, his `romdisk.bin` unchanged), above it a 64 KB ROM (port B and port C = ROM A0-A15, PC7 = A15, the ROM always on). The monitor's `R` (FA68) already takes 16-bit ROM addresses.
+- Game disks: 5 disks of 64 KB (was 9 of 32256 bytes), the same 48 games, menu title "ROM-DISK/64K GAMES n/5". Disks from 0.8.1 and earlier still load (32 KB wiring).
+- Tests: `cart_ppi` both wirings (faults `cart_wide_no_a15`, `cart_wide_pc7_off`; `cart_pc7_ignored` regenerated); `slot_loader` 65536 bytes and the wiring flag (faults `romdisk_32k_only`, `wide_at_32k`); `game` boots with Kiselev's image, reloads the ROM disk slot with disk 2 as the Pocket menu does (64 KB wiring, RAM kept), then XONIX1 above 8000h; `menu` checks the 32 KB wiring; `xonix` is the ROM disk run of the release tier (checkpoints: the menu frame vs `rom-disk-menu.hex`, then XONIX; also the 32 KB wiring), `menu` and `dpddt` skipped unless named; `test_romdisk.py` the five disks.
+- Remote runs (`scripts/docker2tests/remote_sim.py`): the fork's fault entries with 'anywhere' and its first-error rule; a start confirmed by `run.pid` after a timeout; ssh commands retried on a busy container.
+
 ## 0.8.1 (2026-11-11)
 
 The final review's fixes on top of 0.8.0 (fork `rk86-16mhz` d995355).

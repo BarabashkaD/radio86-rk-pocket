@@ -4,7 +4,7 @@ Instructions for coding agents. User docs: `README.md`. Design, bridge map, data
 
 ## 1. Repository
 
-openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Pocket. Version 0.8.1 (2026-11-11).
+openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Pocket. Version 0.8.2 (2026-11-11).
 
 - Identity (`package/core/core.json`, `package/platform/radio86rk.json`, `scripts/package.py`): author `BarabashkaD`, shortname `Radio86RK`, core id `BarabashkaD.Radio86RK`; platform `radio86rk` ("Radio-86RK", category Computer); one bitstream `bitstream.rbf_r`; dock yes, analog output no, sleep no.
 - Machine: `rk86_machine16` from the submodule, used unchanged: the original's 16 MHz timing, each chip (8224 and К155ИЕ4 clocks, 8080, 8257, 8275, 8255, video path, board glue) to its data sheet. Where the data sheets are silent, the decisions and planned real-hardware checks are in the fork's `src/rtl/rk86_16/README.md`.
@@ -35,12 +35,12 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 |---|---|---|---|---|
 | 0 | `monitor.bin` | 2048 | fork `src/roms/BIOS.BIN` | yes |
 | 1 | `font.bin` | 1024 | fork `src/roms/FONT.BIN` | yes |
-| 2 | `romdisk.bin` | 32256 | skiselev/radio-86rk `Software/rom_disk.bin` at `c5e9cb7` | no (any image up to 32768 bytes) |
+| 2 | `romdisk.bin` | 32256 | skiselev/radio-86rk `Software/rom_disk.bin` at `c5e9cb7` | no (any image up to 65536 bytes; above 32768 the 64 KB wiring) |
 
 - Files are loaded byte by byte as they are (`pocket_slot_loader`), no checks; the CRC32 and SHA256 check only fetching and packaging.
 - Slot 2 `parameters` 75 (user-reloadable, core-specific, read-only, core reset while loading); slots 0 and 1: 10. A reload restarts the machine with the RAM kept.
 - `scripts/fetch_assets.py`: the ROM disk, its GPL-3.0 licence and Kiselev's `rom_loader.asm` (for `test_romdisk.py`) into `build/assets`, checked. Never commit the ROM disk.
-- Game disks: `scripts/romdisk/build_romdisks.py` puts the 48 tapes of `pk/` into `build/romdisks/romdisk-1.bin` .. `romdisk-9.bin` (32256 bytes each, fixed table `DISKS`) with the loader `scripts/romdisk/rom_loader_games.asm` (GPL-3.0), plus `romdisks.json` and `romdisks.txt`. `package.py` builds the same disks into every package and lists their games in `info.txt`; `package/romdisks.txt` is the template of the package's `romdisks.txt` (`@GAME_DISKS@` replaced).
+- Game disks: `scripts/romdisk/build_romdisks.py` puts the 48 tapes of `pk/` into `build/romdisks/romdisk-1.bin` .. `romdisk-5.bin` (65536 bytes each, the 64 KB wiring; fixed table `DISKS`) with the loader `scripts/romdisk/rom_loader_games.asm` (GPL-3.0), plus `romdisks.json` and `romdisks.txt`. `package.py` builds the same disks into every package and lists their games in `info.txt`; `package/romdisks.txt` is the template of the package's `romdisks.txt` (`@GAME_DISKS@` replaced).
 - The font is also in the bitstream: `fpga/rtl/native_font.vh` (K1 panel).
 - **Licences**: `LICENSES.md`, one row per part.
 
@@ -80,9 +80,9 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 | `radio86rk_pocket.v` | the board around `rk86_machine16`, one clock `clk_74a`: `ce16` (64 of 297 ticks), reset (144 `ce16`), memory, font, ROM disk, keyboard, `pocket_raster` and display window, beeper (INTE) |
 | `pocket_memory.v` | RAM 0000-7FFF and monitor (8000-87FF of the array), one byte-wide port at `bus_a` (CPU, or 8257 while AEN), loader port in reset; output follows `bus_a`; no write during AEN or while `rom`; no wait states; RUS shadow. A DMA read is decoded like a CPU read: the 8275 gets the byte of whatever is at the 8257's address (this memory, an 8255, the 8275) |
 | `pocket_cold_clear.v` | clears the 32 KB RAM at the first boot and on Cold boot |
-| `pocket_slot_loader.v` | data-slot writes: each bridge word as 4 bytes into the monitor, font or ROM disk; bytes beyond the requested size dropped; `assets_valid` |
+| `pocket_slot_loader.v` | data-slot writes: each bridge word as 4 bytes into the monitor, font or ROM disk; bytes beyond the requested size dropped; `romdisk_64k` (the ROM disk slot above 32768 bytes); `assets_valid` |
 | `pocket_rom8.v` | byte memory, one write and one read port (1 clk latency): font, ROM disk |
-| `pocket_cart_ppi.v` | the A000-BFFF block (second 8255; the machine's `ext_rd_n`, `ext_we_n`, `ext_di`, the fork's "window"): the fork's `k580vv55` with Kiselev's ROM disk wiring (port B, PC0-PC6 ROM address; port A ROM data while PC7 is a low output); its A1, A0 from `bus_a`, also during DMA |
+| `pocket_cart_ppi.v` | the A000-BFFF block (second 8255; the machine's `ext_rd_n`, `ext_we_n`, `ext_di`, the fork's "window"): the fork's `k580vv55` with a ROM disk on its ports, by `wide` (`romdisk_64k`): Kiselev's 32 KB wiring (port B, PC0-PC6 ROM address; port A ROM data while PC7 is a low output) or a 64 KB ROM (port B, port C ROM A0-A15; port A ROM data, always on); its A1, A0 from `bus_a`, also during DMA |
 | `pocket_keyboard.v` | buttons as keyboard lines (64 matrix + SS, US, RUS), K1 panel state, Shift latch; timings in ms parameters |
 | `pocket_remap.v` | button map from Keys, Keys on, Escape |
 | `pocket_k1_panel.v` | the 284 x 82 K1 panel in the 12.288 MHz output stage, 3-stage pipeline |
@@ -101,7 +101,7 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 ### Other `fpga/`
 
 - `core/`: `core_top.v` (pins, bridge mux, PLL, one `pocket_system`), `core_bridge_cmd.v`, `mf_pllbase*` (12.288 MHz PLL), `core_constraints.sdc`. `apf/`: unchanged template, `TEMPLATE-NOTICES.md`.
-- `quartus/`: `ap_core.qsf`; `create_project.tcl` (project in a build dir, `fpga/rtl/*.v` plus `rk86_machine16.prj`, `VERILOG_CONSTANT_LOOP_LIMIT 40000`); report-only `report_pocket_machine_cdc.tcl`, `report_pocket_audio_cdc.tcl`, `report_pocket_timing.tcl` (`quartus_sta -t` in a build dir).
+- `quartus/`: `ap_core.qsf`; `create_project.tcl` (project in a build dir, `fpga/rtl/*.v` plus `rk86_machine16.prj`, `VERILOG_CONSTANT_LOOP_LIMIT 70000`); report-only `report_pocket_machine_cdc.tcl`, `report_pocket_audio_cdc.tcl`, `report_pocket_timing.tcl` (`quartus_sta -t` in a build dir).
 - `sim/`:
   - `run_sim.py` (runner, `TESTS`); `frame_compare.py` (1-bit 408 x 300 frame vs golden, one cell tolerance; `--cursor cursor.txt --x0 N` masks the cursor cell); `run_core_machine.py` (fork's `machine16` on `pocket_memory`, then fault `memory_dropped_after_rd`, must fail with `ERROR: dma byte`).
   - `unit/`: one TB per module (`tb_slot_loader`, `tb_bus_cdc`, `tb_cart_ppi`, `tb_cold_clear`, `tb_cpu16`, `tb_frame_colour`, `tb_frame_video`, `tb_k1_panel`, `tb_native_audio`, `tb_pll_watchdog`, `tb_pocket_interact`, `tb_pocket_keyboard`, `tb_pocket_memory`, `tb_pocket_raster`, `tb_pocket_window`); `cpu16/cpu_test.asm` (assembled with `scripts/romdisk/asm8080.py`).
@@ -119,7 +119,7 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 | `romdisk/asm8080.py` | two-pass 8080 assembler (Kiselev's syntax) |
 | `romdisk/rom_loader_games.asm`, `romdisk/loader.py` | games menu loader (GPL-3.0; keys 0-9, A-Y; Z clears RAM), `games_loader()` |
 | `romdisk/emu8080.py` | small 8080 emulator with monitor stubs, for the tests |
-| `romdisk/build_romdisks.py` | the 9 game disks into `build/romdisks` (`--pk`, `--out`); `build()`, `metadata()` used by `package.py` |
+| `romdisk/build_romdisks.py` | the 5 game disks (64 KB) into `build/romdisks` (`--pk`, `--out`); `build()`, `metadata()` used by `package.py` |
 | `package.py` | SD package and zip; openFPGA field and interact limits; bit-reversed RBF; icon and platform image; game disks, `romdisks.txt`, games in `info.txt`; library zip check |
 | `k1/layout.py` | single source of the K1 table, labels, navigation, model `render_panel` |
 | `k1/gen_verilog.py` | writes `pocket_k1_layout.vh` (`--out PATH`) |
@@ -166,9 +166,10 @@ Outputs: `build/sim/<test>/`. Pass: `vvp` exits 0, a `PASS` line, no `ERROR`/`FA
 | `system_k1_panel` | system (scenario `k1_panel`): the panel with the machine frozen (`ce16` held low), 3 captures; then `python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3` | 23 min with the machine running; frozen: to be measured |
 | `keytap` | system: an 80 ms and a 1 ms button tap reach the monitor (`pocket_keyboard` on real milliseconds; INFO: the time to the delivery); fault `keytap/min_hold_short` | not measured yet |
 | `k1` | system: 7 panel captures; then `python -B scripts/k1/check_frames.py build/sim/k1` | 105 min |
-| `menu` | ROM disk: frame vs `rom-disk-menu.hex` | 155 min |
-| `xonix`, `dpddt` | ROM disk | 190, 182 min |
-| `game` | ROM disk: disk 9 from `build/romdisks` (build first), XONIX1 by key B | 189 min |
+| `xonix` | ROM disk, checkpoints: the loader copied, the menu reached; the menu frame vs `rom-disk-menu.hex`; key 4: XONIX copied to 0000, started, running | about 190 min |
+| `menu` | ROM disk, the menu frame only; skipped unless named: `xonix` captures the same frame | 155 min |
+| `dpddt` | ROM disk; skipped unless named (`run_sim.py dpddt`): `xonix` covers the same path | 182 min |
+| `game` | ROM disk, checkpoints: boot with Kiselev's image (32 KB wiring); the ROM disk slot reloaded with disk 2 (`cartridge2.hex` from `build/romdisks`, build first) as the Pocket menu does: 64 KB wiring, RAM kept, monitor restarted; menu, key 9: XONIX1 (above 8000h: ROM A15 = PC7) copied, started, running | about 190 min |
 | `tetris` | kept, skipped unless named (`run_sim.py tetris`); its D-pad mapping is to be reviewed | |
 
 Times: measured 2026-11-11 on a 10-CPU host with several runs in parallel.
@@ -183,7 +184,7 @@ Choose by `git diff --name-only <base>...HEAD` plus uncommitted changes.
 | sanity | first system check after an RTL, TB or pin change | `run_sim.py boot` | 16-30 min |
 | standard | after an RTL or TB change | quick, sanity, the scenarios of the changed modules (table below); `run_sim.py --negative cpu16` and `run_core_machine.py` after a change of `pocket_memory.v` or `fpga/sim/memory/` (7 min; 25-30 min, then its fault as long); package dry run after a change of `package/` or package scripts; Quartus build (10 min) after a change of `fpga/core/`, `fpga/apf/`, `fpga/quartus/` or an `.sdc` | 30 min to 2 h |
 | full | once before a push | every unit TB with faults; `run_sim.py --negative cpu16`; `unit-tests.ps1`; `boot`, `powerup`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel`, `run_sim.py --negative keytap`, `k1` (with `check_frames.py`); `run_core_machine.py`; the fork's runner with `--negative` (unit TBs 2 h 8 min at 2 jobs, `machine16` with faults 2 h at 4 jobs); `package-dry-run.ps1`; `build.ps1` | about 6 h in parallel |
-| release | before a package goes to the Pocket | full, the ROM disk scenarios the change touches (`menu`, `xonix`, `dpddt`, `game`), then `package.py` on the real build | up to +3.5 h |
+| release | before a package goes to the Pocket | full, the ROM disk scenarios the change touches (`xonix`, `game`), then `package.py` on the real build | up to +3.5 h |
 
 | Changed | Standard | Release adds |
 |---|---|---|
@@ -191,17 +192,17 @@ Choose by `git diff --name-only <base>...HEAD` plus uncommitted changes.
 | `pocket_k1_panel.v`, `pocket_k1_layout.vh`, `native_font.vh`, `scripts/k1/` | `system_k1_panel` | `k1` |
 | `pocket_bus_cdc.v` | `system_k1_panel`, `relock` | |
 | `pocket_frame_video.v` | `boot`, `system_k1_panel`, `relock` | |
-| `pocket_raster.v`, `pocket_window.v` | `boot` | `menu` |
-| `pocket_memory.v`, `pocket_cold_clear.v` | `boot`, `reset`, `cpu16`, `run_core_machine.py` | `menu` |
-| `pocket_slot_loader.v`, `pocket_rom8.v` | `boot`, `nocart` | `menu` |
-| `pocket_cart_ppi.v` | `nocart` | `menu`, `xonix` |
+| `pocket_raster.v`, `pocket_window.v` | `boot` | `xonix` |
+| `pocket_memory.v`, `pocket_cold_clear.v` | `boot`, `reset`, `cpu16`, `run_core_machine.py` | `xonix` |
+| `pocket_slot_loader.v`, `pocket_rom8.v` | `boot`, `nocart` | `xonix` |
+| `pocket_cart_ppi.v` | `nocart` | `xonix`, `game` |
 | `pocket_audio.v` | `relock` (`audio` checks the samples) | |
 | `pocket_pll_watchdog.v` | `system_watchdog`, `relock` | |
 | `pocket_interact.v` | `boot`, `reset` | |
-| `radio86rk_pocket.v` | `boot`, `nocart`, `reset`, `system_k1_panel` | `menu` |
-| `pocket_system.v`, `tb_system.v`, `power_up.vh` | `boot`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel` | `menu` |
+| `radio86rk_pocket.v` | `boot`, `nocart`, `reset`, `system_k1_panel` | `xonix` |
+| `pocket_system.v`, `tb_system.v`, `power_up.vh` | `boot`, `nocart`, `reset`, `relock`, `system_watchdog`, `system_k1_panel` | `xonix` |
 | `scripts/romdisk/` | (`test_romdisk.py` in quick) | `game` |
-| a new module | the `pocket_system.v` row | `menu` |
+| a new module | the `pocket_system.v` row | `xonix` |
 
 Always the full tier: a pin move, a change of `.gitattributes`, of a golden frame, or of the iverilog version.
 
@@ -246,7 +247,7 @@ python -B scripts/check_build.py build/quartus
 python -B scripts/package.py --version <version> --date <YYYY-MM-DD> [--build build/quartus] [--assets build/assets] [--output build/package]
 ```
 
-Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<date>.zip`: `Cores/BarabashkaD.Radio86RK/` (bitstream, json, `info.txt`, icon, licences, `APF-NOTICE.txt`), `Assets/radio86rk/BarabashkaD.Radio86RK/` (the three assets, `romdisk-1.bin` .. `romdisk-9.bin`, `romdisks.txt`), `Platforms/` (`radio86rk.json`, `_images/radio86rk.bin`). Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (into `build/ci-local/tmp/`; never publish that zip).
+Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<date>.zip`: `Cores/BarabashkaD.Radio86RK/` (bitstream, json, `info.txt`, icon, licences, `APF-NOTICE.txt`), `Assets/radio86rk/BarabashkaD.Radio86RK/` (the three assets, `romdisk-1.bin` .. `romdisk-5.bin`, `romdisks.txt`), `Platforms/` (`radio86rk.json`, `_images/radio86rk.bin`). Without a Quartus build: `pwsh -File scripts/ci/package-dry-run.ps1` (into `build/ci-local/tmp/`; never publish that zip).
 
 ### CI (GitHub Actions)
 
@@ -268,12 +269,12 @@ Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<d
 
 Unzip the package onto the SD card root; the core appears as "Radio-86RK". Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` first.
 
-## 7. Features (0.8.1)
+## 7. Features (0.8.2)
 
 - `rk86_machine16`: `ce16` on 64 of 297 `clk_74a` ticks (16 MHz timebase); CPU 1.778 MHz (Vslav's 8080); 8257 on Φ2; 8 MHz dots; 516 x 310 raster at 50 Hz; one DMA HOLD period per character.
 - The board's address map and DMA wiring, reproduced (`fpga/README.md`, The 16 MHz machine): one device per 8 KB block (A15-A13), each 8255's 4 registers repeating every 4 bytes; the 8257 on channel 2 only, memory to the 8275, MEMR not connected; DMA reads decoded like CPU reads.
 - Monitor and font from data slots, as they are: monitor at 8000-87FF of the memory array (read at E000-FFFF), font in its own memory.
-- ROM disk on the ports of the second 8255, the A000-BFFF block (optional, every ROM disk byte reads FF when absent; up to 32768 bytes), reloadable from the core's menu with the RAM kept; menu via `R0,1FF,0`, `G0`. Nine game disks in the package.
+- ROM disk on the ports of the second 8255, the A000-BFFF block (optional, every ROM disk byte reads FF when absent; up to 65536 bytes), reloadable from the core's menu with the RAM kept; menu via `R0,1FF,0`, `G0`. The wiring follows the image size: up to 32768 bytes Kiselev's (PC7 = ROM enable), above it a 64 KB ROM (PC7 = ROM A15, always on). Five 64 KB game disks in the package.
 - K1 on-screen keyboard (L+R): 67 keys, labels from the monitor's decoder, LAT/RUS, Shift latch (L tap), Ctrl (L held), RUS/LAT (R); palettes Pink, Grey, Mono.
 - Buttons with the panel closed: Keys (Cursor, Digits 7-8-9-6, Digits 8-4-6-2, WASD), Keys on (D-pad, A B X Y), Escape (Select, Start, None).
 - Core Settings: Reset (RAM kept), Cold boot (RAM cleared), Sound, Text colour, Keyboard colours.
@@ -300,5 +301,5 @@ Unzip the package onto the SD card root; the core appears as "Radio-86RK". Upgra
 - Follow-up: `tetris` stays skipped; its D-pad check is vacuous on the full 8255 and the D-pad mapping is to be reviewed by the maintainer.
 - Follow-up: `reset` does not compare the picture after Reset and Cold boot with `golden/monitor-boot.hex` (the 8275 keeps running through the machine reset).
 - Follow-up: `powerup` uses Icarus' fixed `$random` sequence (one state, no `+seed`) and randomises only the 8275 parameters and the 8257 address and count.
-- Follow-up: 64 KB game disks. A second ROM disk wiring (PC7 = ROM A15, the ROM always enabled: all 24 port lines, 16 address + 8 data) in `pocket_cart_ppi` / `pocket_rom8`, chosen per image; the game disks rebuilt for 64 KB (fewer, larger disks; the loader's table and menu above 8000h). The monitor's `R` (FA68) and the loader's code already take 16-bit ROM addresses. Kiselev's `romdisk.bin` stays a 32 KB image with his wiring (PC7 = ROM enable).
+- Follow-up: the ROM disk image in external memory (the Pocket's SRAM 256 KB, PSRAM 2 x 16 MB or SDRAM 64 MB, all tied off in `core_top.v` today) instead of block RAM (64 M10K); `monitor.bin` and `font.bin` stay in block RAM. The read latency must stay below the shortest port-write-to-port-A-read interval of the 8080 bus; the choice of memory goes with the 8 MB card.
 - Follow-up: an 8 MB ROM card for the second 8255 (a bank latch loaded from port B on a PC7 edge: 256 banks of 32 KB, ROM A15-A22), for real boards and as a Pocket emulation mode with the image in external memory; a bank-aware loader that reuses the monitor's `R` (FA68) inside a bank.

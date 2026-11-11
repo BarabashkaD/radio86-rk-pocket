@@ -6,7 +6,7 @@ Usage: python -B scripts/package.py --version 0.5.0 --date YYYY-MM-DD [--build b
 Checks the definitions against the openFPGA limits, bit-reverses the RBF (round trip checked),
 checks every shipped asset against package/assets.json, draws the icon and platform image,
 writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip, then checks the zip as the openFPGA library's updater reads it.
-The Assets folder also gets the 9 game disks romdisk-1.bin to romdisk-9.bin, built from the core's
+The Assets folder also gets the 5 game disks romdisk-1.bin to romdisk-5.bin (64 KB each), built from the core's
 pk/ folder by scripts/romdisk/build_romdisks.py, next to Kiselev's romdisk.bin, and romdisks.txt
 (package/romdisks.txt: how to run and change the ROM disk, the programs of romdisk.bin, the games
 of each game disk). info.txt (shown on the Pocket) also lists the games by menu key and name.
@@ -237,7 +237,7 @@ def check_library_zip(zip_path):
 
 
 GUIDE_MARKER = '@GAME_DISKS@'
-ROMDISK_MAX = 32768                 # data.json size_maximum of the ROM disk slot
+ROMDISK_MAX = 65536                 # data.json size_maximum of the ROM disk slot
 
 
 def romdisk_guide(template, disks):
@@ -250,7 +250,9 @@ def romdisk_guide(template, disks):
              'Load one from the Pocket menu as above, then type R0,1FF,0 and G0: its menu lists the',
              'games with the keys 0 to 9, then A to Y; Z clears the memory 0000-73FF. To choose',
              'another game, use Core Settings > Reset, then R0,1FF,0 and G0 again; G7416 alone shows',
-             'the menu again too, unless the game has overwritten the loader at 7400-75FF.']
+             'the menu again too, unless the game has overwritten the loader at 7400-75FF.',
+             'Each game disk is 64 KB: it needs this core (0.8.2 or later); an older core refuses',
+             'the file, and the ROM disk then reads FF.']
     for d in disks:
         lines += ['', '%s (disk %d)' % (d['file'], d['disk'])]
         for e in d['entries']:
@@ -275,7 +277,7 @@ def info_with_games(info, disks):
 
 
 def game_disks(pk_dir, reserved):
-    """The 9 game disks built from the core's tape images by build_romdisks.py:
+    """The 5 game disks built from the core's tape images by build_romdisks.py:
     (the romdisks.json list, {file name: bytes}). A name of another asset is an error."""
     try:
         built = build_romdisks.build(pk_dir)

@@ -43,10 +43,10 @@ wire assets_reset_n = por == 4'hF;
 pocket_pll_watchdog pll_watchdog(.clk(clk_74a), .locked_s(pll_locked_s), .pll_reset(pll_reset));
 
 wire [31:0] native_frames, key_status, mode_status, interact_rd_data;
-wire [14:0] byte_a;
+wire [15:0] byte_a;
 wire [7:0] byte_d;
 wire [15:0] machine_address;
-wire assets_valid, monitor_we, font_we, romdisk_we, interact_selected, warm_reset, cold_boot, sound_on, text_green, beeper;
+wire assets_valid, monitor_we, font_we, romdisk_we, romdisk_64k, interact_selected, warm_reset, cold_boot, sound_on, text_green, beeper;
 wire [1:0] controls_preset, controls_escape, panel_palette;
 wire [77:0] panel_state, panel_state_pixel;
 wire controls_keys_on;
@@ -60,12 +60,12 @@ pocket_slot_loader loader(.clk(clk_74a), .reset_n(assets_reset_n), .machine_quie
     .request_write(dataslot_requestwrite), .request_id(dataslot_requestwrite_id), .request_size(dataslot_requestwrite_size),
     .request_ack(dataslot_requestwrite_ack), .request_ok(dataslot_requestwrite_ok), .allcomplete(dataslot_allcomplete),
     .bridge_wr(bridge_wr), .bridge_address(bridge_addr), .bridge_data(bridge_wr_data), .assets_valid(assets_valid),
-    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .byte_a(byte_a), .byte_d(byte_d));
+    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .romdisk_64k(romdisk_64k), .byte_a(byte_a), .byte_d(byte_d));
 radio86rk_pocket rk86(.clk(clk_74a), .apf_reset_n(reset_n), .assets_valid(assets_valid),
     .warm_reset(warm_reset), .cold_boot(cold_boot), .sound_on(sound_on), .pad(cont1_key),
     .preset(controls_preset), .keys_on(controls_keys_on), .escape(controls_escape), .palette(panel_palette),
-    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .byte_a(byte_a), .byte_d(byte_d),
-    .pixel_valid(pixel_valid), .pixel_data(pixel_data), .pixel_start(pixel_start), .pixel_end(pixel_end),
+    .monitor_we(monitor_we), .font_we(font_we), .romdisk_we(romdisk_we), .romdisk_64k(romdisk_64k),
+    .byte_a(byte_a), .byte_d(byte_d), .pixel_valid(pixel_valid), .pixel_data(pixel_data), .pixel_start(pixel_start), .pixel_end(pixel_end),
     .pixel_address(pixel_address), .beeper(beeper), .cpu_address(machine_address), .memory_ready(memory_ready),
     .native_frames(native_frames), .key_status(key_status), .mode_status(mode_status),
     .panel_state(panel_state));

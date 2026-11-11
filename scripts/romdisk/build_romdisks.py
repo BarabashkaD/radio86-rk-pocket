@@ -1,20 +1,22 @@
-"""Builds the 48 Karabas game tape images into 9 ROM disks of 32256 bytes.
+"""Builds the 48 Karabas game tape images into 5 ROM disks of 65536 bytes (the 64 KB wiring).
 
 Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR]
   --pk   directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
   --out  output directory (default build/romdisks)
 
-Writes romdisk-<n>.bin (n = 1..9), romdisks.json (with each game's title from the pk
+Writes romdisk-<n>.bin (n = 1..5), romdisks.json (with each game's title from the pk
 directory's DESCRIPT.ION, or '') and romdisks.txt.
 
 Rules: DISKS is a fixed table (menu order = the file name order). Every
 .GAM/.RKR/.RK file of the pk directory except bios.rk is in exactly one disk and
 every table name exists. The menu name is the file stem, or the whole file name
-when two files of one disk share a stem. The title is "ROM-DISK/32K GAMES <n>/9".
+when two files of one disk share a stem. The title is "ROM-DISK/64K GAMES <n>/5".
 The payloads start at offset 0200H in menu order, behind the games loader
 (loader.games_loader); the rest is FF. The RAM address is the tape start address.
-A payload ending beyond 7E00H, or a RAM range overlapping 7400H-75FFH (the loader)
-or passing FFFFH, is an error.
+A payload ending beyond FFFFH, or a RAM range overlapping 7400H-75FFH (the loader)
+or passing FFFFH, is an error. A disk is more than 32 KB: the core reads it with the
+64 KB ROM disk wiring (port B and port C the ROM address A0-A15); Kiselev's 32 KB wiring
+cannot read it.
 
 The output is never committed. scripts/package.py builds the same disks itself (build, metadata)
 and puts them in the package next to Kiselev's romdisk.bin.
@@ -28,25 +30,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import loader  # noqa: E402
 
-DISK_SIZE = 32256
+DISK_SIZE = 65536
 PAYLOAD_START = 0x200
-PAYLOAD_LIMIT = 0x7E00
+PAYLOAD_LIMIT = 0x10000
 LOADER_RAM = (0x7400, 0x75FF)
 EXTENSIONS = ('.gam', '.rkr', '.rk')
 EXCLUDED = ('bios.rk',)
 
 DISKS = [
-    ['CHESS.GAM', 'GLASS2.GAM'],
-    ['CHERV.RKR', 'LORUNNER.GAM', 'PAKET2.RKR'],
-    ['RIKOSHET.RKR', 'SOS2.GAM', 'SPITON.GAM'],
-    ['GFIRE.GAM', 'PAKET.RKR', 'ZMEI.RKR'],
-    ['LESTN1.RKR', 'PACMAN.RKR', 'PACMAN1.GAM', 'STRANGER.GAM'],
-    ['CIRCUS.RKR', 'KROK.GAM', 'LABYRINT.GAM', 'MAZE.GAM', 'PVO.RKR'],
-    ['DIVERSE.GAM', 'KRESTNO.GAM', 'KRESTNO.RKR', 'SDEMISE.GAM', 'TAPPER.GAM', 'TENNIS.GAM'],
-    ['BOMBER.GAM', 'PACMAN.GAM', 'PINGPONG.RKR', 'SLAMS.RKR', 'SOS1.GAM', 'TETR2.RKR', 'TOCHKI.RKR',
-     'VOLCANO.RKR', 'XONIXZM.GAM'],
-    ['GLASS1.GAM', 'LEST.RKR', 'PITON.GAM', 'PUSHER.GAM', 'SKACHKI.GAM', 'SKVOTCH.RKR', 'TETRIS1.RKR',
-     'TETRIS4.RKR', 'UDAW.GAM', 'UTKA.GAM', 'XONIX.RKR', 'XONIX1.RKR', 'ZAGIB.RKR'],
+    ['CHERV.RKR', 'CHESS.GAM', 'KROK.GAM', 'SKACHKI.GAM', 'SKVOTCH.RKR', 'SOS1.GAM', 'SOS2.GAM', 'TENNIS.GAM',
+     'UDAW.GAM'],
+    ['KRESTNO.GAM', 'KRESTNO.RKR', 'MAZE.GAM', 'PACMAN1.GAM', 'PAKET2.RKR', 'PITON.GAM', 'TETRIS1.RKR', 'UTKA.GAM',
+     'VOLCANO.RKR', 'XONIX1.RKR'],
+    ['DIVERSE.GAM', 'LABYRINT.GAM', 'LEST.RKR', 'PACMAN.RKR', 'PINGPONG.RKR', 'PVO.RKR', 'SLAMS.RKR', 'SPITON.GAM',
+     'STRANGER.GAM', 'TOCHKI.RKR'],
+    ['BOMBER.GAM', 'CIRCUS.RKR', 'GFIRE.GAM', 'GLASS1.GAM', 'GLASS2.GAM', 'PAKET.RKR', 'XONIX.RKR', 'XONIXZM.GAM',
+     'ZMEI.RKR'],
+    ['LESTN1.RKR', 'LORUNNER.GAM', 'PACMAN.GAM', 'PUSHER.GAM', 'RIKOSHET.RKR', 'SDEMISE.GAM', 'TAPPER.GAM',
+     'TETR2.RKR', 'TETRIS4.RKR', 'ZAGIB.RKR'],
 ]
 
 
@@ -115,7 +116,7 @@ def build(pk_dir):
             entries.append({'key': loader.KEYS[i], 'name': name, 'file': fname, 'rom': pos,
                             'end': pos + len(payload) - 1, 'ram': start, 'length': len(payload)})
             pos += len(payload)
-        head = loader.games_loader('ROM-DISK/32K GAMES %d/9' % number,
+        head = loader.games_loader('ROM-DISK/64K GAMES %d/%d' % (number, len(DISKS)),
                                    [(e['name'], e['rom'], e['end'], e['ram']) for e in entries])
         if len(head) != PAYLOAD_START:
             raise ValueError('games loader is %d bytes' % len(head))
