@@ -24,7 +24,7 @@ foreach f {core_top.v core_bridge_cmd.v} {
 foreach f [lsort [glob [file join $fpga rtl *.v]]] {
     set_global_assignment -name VERILOG_FILE $f
 }
-set prj [open [file join $core rk86_machine.prj]]
+set prj [open [file join $core rk86_machine16.prj]]
 while {[gets $prj line] >= 0} {
     if {[regexp {^verilog\s+\S+\s+"([^"]+)"} $line -> rel]} {
         set_global_assignment -name VERILOG_FILE [file join $core $rel]

@@ -1,0 +1,13 @@
+diff --git a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+index a4353f2..43ee1d7 100644
+--- a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
++++ b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+@@ -50,7 +50,7 @@ k580vm80a cpu(.pin_clk(clk), .pin_f1(f1), .pin_f2(f2), .pin_reset(sys_reset),
+     .pin_hold(hold), .pin_hlda(hlda), .pin_ready(ready), .pin_wait(), .pin_int(1'b0),
+     .pin_inte(inte), .pin_sync(cpu_sync), .pin_dbin(cpu_dbin), .pin_wr_n(cpu_wr_n));
+ //---------------- the address decoder on the system address; off during start-up (GLUE-11: D13.2 disables D11)
+-wire dec_en = !startup;
++wire dec_en = 1'b1;
+ wire sel_ppa = dec_en && bus_a[15:13] == 3'b100;
+ wire sel_ext = dec_en && bus_a[15:13] == 3'b101;
+ wire sel_crt = dec_en && bus_a[15:13] == 3'b110;

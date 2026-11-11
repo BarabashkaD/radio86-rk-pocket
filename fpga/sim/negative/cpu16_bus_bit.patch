@@ -1,0 +1,12 @@
+diff --git a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+--- a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
++++ b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+@@ -105,7 +105,7 @@ function [7:0] rd_mux(input [15:0] a, input su, input [7:0] mem, input [7:0] ppa
+ endfunction
+ // the CPU reads only while AEN is low, where bus_a is cpu_a; the 8275 takes a DMA byte while AEN is high: the
+ // device at the 8257's address, as the board's ЧТЕНИЕ (the 8257 MEMW) enables it
+-always @(*) cpu_i = rd_mux(cpu_a, startup, mem_di, ppa_o, ext_di, crt_o);
++always @(*) cpu_i = rd_mux(cpu_a, startup, {mem_di[7:4], mem_di[3] & cpu_a[15], mem_di[2:0]}, ppa_o, ext_di, crt_o);
+ assign dma_di = rd_mux(bus_a, startup, mem_di, ppa_o, ext_di, crt_o);
+ // the monitor: bus_a E000-FFFF (the CPU's or the 8257's address), every address during start-up (the 8257 makes no
+ // transfer then: RESET resets it, and start-up ends at the monitor's first read with A15 = 1, before it programs it)

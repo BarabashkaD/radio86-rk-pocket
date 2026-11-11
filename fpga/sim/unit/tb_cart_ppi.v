@@ -1,54 +1,108 @@
 `timescale 1ns/1ps
+`default_nettype none
+// pocket_cart_ppi, the ROM disk glue in Kiselev's wiring around the fork's k580vv55: after reset every
+// pin an input (the ROM address 7FFF, port A FF); the monitor's FA68 sequence (control word 90h, SHLD
+// A001h, LDA A000h) reads the ROM byte at HL; PC7 high (bit set / reset 0Fh) turns the ROM off (port A
+// FF, the address kept), PC7 low (0Eh) turns it on again; a byte at an address written 1 clk before the
+// read; every one of the 32768 addresses; the directions of the full 8255 (port C upper an input: the
+// ROM off; port C lower or port B an input: those address pins high; port A an output: its latch);
+// reset again. CS / RD / WR strobes held 4 clk, as in the fork's tb_vv55.v.
 module tb_cart_ppi;
-    reg clk=0,reset=1,write_strobe=0,rom_valid=1;
-    reg [1:0] register_address=0;
-    reg [7:0] write_data=0,rom_data=0;
-    reg [14:0] rom_tag=0;
-    wire [14:0] rom_address;
-    wire [7:0] read_data;
-    wire ready;
-    always #5 clk=~clk;
-    function [7:0] pattern(input [14:0] address);
-        pattern=address>=15'h7e00 ? 8'hff : ((address*37)^address[14:8]^8'ha5);
-    endfunction
-    always @(posedge clk)begin rom_tag<=rom_address;rom_data<=pattern(rom_address);end
-    pocket_cart_ppi dut(.clk(clk),.reset(reset),.write_strobe(write_strobe),.register_address(register_address),
-        .write_data(write_data),.read_data(read_data),.rom_valid(rom_valid),.rom_address(rom_address),
-        .rom_tag(rom_tag),.rom_data(rom_data),.read_ready(ready));
-    task write_reg(input [1:0] a,input [7:0] d);
-        begin @(negedge clk);register_address=a;write_data=d;write_strobe=1;
-            @(negedge clk);write_strobe=0;repeat(2)@(negedge clk);end
-    endtask
-    task expect_read(input [1:0] a,input [7:0] d);
-        begin register_address=a;#1;if(!ready || read_data!==d)$fatal(1,"cart PPI reg=%h got=%h ready=%b want=%h",a,read_data,ready,d);end
-    endtask
-    integer i;
-    initial begin
-        repeat(3)@(negedge clk);reset=0;
-        expect_read(0,255);expect_read(1,255);expect_read(2,255);
-        write_reg(3,8'h90);expect_read(1,0);expect_read(2,0);expect_read(0,pattern(0));
-        for(i=0;i<32768;i=i+1)begin
-            write_reg(1,i[7:0]);write_reg(2,{1'b0,i[14:8]});
-            if(rom_address!==i[14:0])$fatal(1,"ROM address wiring %h want %h",rom_address,i);
-            expect_read(0,pattern(i));
-        end
-        write_reg(3,8'h0f);expect_read(0,255); // BSR PC7 set: /CE off.
-        write_reg(3,8'h0e);expect_read(0,255); // Last address is defined FF tail.
-        write_reg(1,0);write_reg(2,0);expect_read(0,pattern(0));
-        write_reg(0,8'h11);expect_read(0,pattern(0)); // ROM is read-only.
-        // Assert a stale tag directly to verify the CPU-facing wait contract.
-        force rom_tag=15'h1234;register_address=0;#1;
-        if(ready || read_data!==255)$fatal(1,"stale ROM data exposed");
-        release rom_tag;repeat(2)@(negedge clk);expect_read(0,pattern(0));
-        rom_valid=0;expect_read(0,255);rom_valid=1;
-        write_reg(3,8'h91);expect_read(0,255); // C low input.
-        write_reg(3,8'h98);expect_read(0,255); // C high input.
-        write_reg(3,8'h92);expect_read(0,255); // B input.
-        write_reg(3,8'h80);expect_read(0,255); // A output.
-        write_reg(3,8'h94);expect_read(0,255); // Unsupported group-B mode 1.
-        write_reg(3,8'hb0);expect_read(0,255); // Unsupported group-A mode 1.
-        write_reg(3,8'h90);expect_read(3,255);expect_read(0,pattern(0));
-        reset=1;#1;expect_read(0,255);
-        $display("PASS cart PPI: all 32768 addresses, 00FF/0100, payload/tail, mode/direction, BSR CE, read-only, stale tag and reset");$finish;
+reg clk = 1'b0, reset = 1'b1, cs_n = 1'b1, rd_n = 1'b1, wr_n = 1'b1;
+reg [1:0] a = 2'd0;
+reg [7:0] d_i = 8'h00, rom_data = 8'h00;
+wire [7:0] d_o;
+wire [14:0] rom_address;
+always #5 clk = ~clk;
+function [7:0] pattern(input [14:0] address);
+    pattern = (address * 37) ^ address[14:8] ^ 8'hA5;
+endfunction
+always @(posedge clk) rom_data <= pattern(rom_address);    // the ROM data follows the address every clk
+pocket_cart_ppi dut(.clk(clk), .reset(reset), .cs_n(cs_n), .rd_n(rd_n), .wr_n(wr_n), .a(a), .d_i(d_i), .d_o(d_o),
+    .rom_address(rom_address), .rom_data(rom_data));
+integer errors = 0, i;
+reg [7:0] v;
+task chk(input ok, input [8*64-1:0] what);
+    begin
+        if (!ok) begin $display("ERROR: cart_ppi: %0s at %0t", what, $time); errors = errors + 1; end
+        if (errors >= 20) begin $display("FATAL: cart_ppi: too many errors"); $finish; end
     end
+endtask
+task wr(input [1:0] ad, input [7:0] dd);
+    begin
+        @(negedge clk) begin cs_n = 1'b0; a = ad; d_i = dd; end
+        @(negedge clk) wr_n = 1'b0;
+        repeat (4) @(negedge clk); wr_n = 1'b1;
+        @(negedge clk) cs_n = 1'b1;
+        repeat (2) @(negedge clk);
+    end
+endtask
+task rd(input [1:0] ad, output [7:0] dd);
+    begin
+        @(negedge clk) begin cs_n = 1'b0; a = ad; end
+        @(negedge clk) rd_n = 1'b0;
+        repeat (4) @(negedge clk); dd = d_o; rd_n = 1'b1;
+        @(negedge clk) cs_n = 1'b1;
+        repeat (2) @(negedge clk);
+    end
+endtask
+// a port B write and a port A read that starts 1 clk after its WR↑ (CS held)
+task wr_b_rd_a(input [7:0] dd, output [7:0] q);
+    begin
+        @(negedge clk) begin cs_n = 1'b0; a = 2'd1; d_i = dd; end
+        @(negedge clk) wr_n = 1'b0;
+        repeat (4) @(negedge clk); wr_n = 1'b1;
+        @(negedge clk) begin a = 2'd0; rd_n = 1'b0; end
+        repeat (4) @(negedge clk); q = d_o; rd_n = 1'b1;
+        @(negedge clk) cs_n = 1'b1;
+        repeat (2) @(negedge clk);
+    end
+endtask
+initial begin
+    repeat (4) @(negedge clk); reset = 1'b0; repeat (2) @(negedge clk);
+    // reset: every pin an input, high
+    chk(rom_address === 15'h7FFF, "reset: rom address not 7FFF");
+    rd(2'd0, v); chk(v === 8'hFF, "reset: port A not FF");
+    // the monitor's FA68: MVI A,90h; STA A003h; SHLD A001h (HL = 1234h); LDA A000h
+    wr(2'd3, 8'h90);
+    chk(rom_address === 15'h0000, "mode set: address latches not cleared");
+    wr(2'd1, 8'h34); wr(2'd2, 8'h12);
+    chk(rom_address === 15'h1234, "SHLD: rom address");
+    rd(2'd0, v); chk(v === pattern(15'h1234), "LDA A000h: ROM byte at 1234h");
+    // PC7 high: the ROM off, port A FF, the address A0-A14 unchanged; PC7 low: the byte returns
+    wr(2'd3, 8'h0F);
+    rd(2'd0, v); chk(v === 8'hFF && rom_address === 15'h1234, "pc7 high: port A not FF or the address changed");
+    wr(2'd3, 8'h0E);
+    rd(2'd0, v); chk(v === pattern(15'h1234) && rom_address === 15'h1234, "pc7 low again: ROM byte at 1234h");
+    // an address written 1 clk before the read
+    wr_b_rd_a(8'h56, v); chk(v === pattern(15'h1256), "read 1 clk after the address write");
+    // every address
+    for (i = 0; i < 32768; i = i + 1) begin
+        wr(2'd1, i[7:0]); wr(2'd2, {1'b0, i[14:8]});
+        chk(rom_address === i[14:0], "sweep: rom address wiring");
+        rd(2'd0, v); chk(v === pattern(i[14:0]), "sweep: ROM byte");
+    end
+    // the directions of the full 8255
+    wr(2'd3, 8'h98); wr(2'd1, 8'h21); wr(2'd2, 8'h03);           // port C upper an input: PC7 high, the ROM off
+    chk(rom_address === 15'h7321, "port C upper input: address");
+    rd(2'd0, v); chk(v === 8'hFF, "port C upper input: port A not FF");
+    wr(2'd3, 8'h91); wr(2'd1, 8'h21); wr(2'd2, 8'h30);           // port C lower an input: PC0-PC3 high
+    chk(rom_address === 15'h3F21, "port C lower input: address");
+    rd(2'd0, v); chk(v === pattern(15'h3F21), "port C lower input: ROM byte");
+    wr(2'd3, 8'h92); wr(2'd2, 8'h05);                            // port B an input: A0-A7 high
+    chk(rom_address === 15'h05FF, "port B input: address");
+    rd(2'd0, v); chk(v === pattern(15'h05FF), "port B input: ROM byte");
+    wr(2'd3, 8'h80); wr(2'd0, 8'h3C);                            // port A an output: the latch, not the ROM
+    rd(2'd0, v); chk(v === 8'h3C, "port A output: the latch");
+    wr(2'd3, 8'h90);
+    rd(2'd0, v); chk(v === pattern(15'h0000), "mode 90h again: ROM byte at 0000h");
+    // reset
+    @(negedge clk) reset = 1'b1; repeat (2) @(negedge clk); reset = 1'b0; repeat (2) @(negedge clk);
+    chk(rom_address === 15'h7FFF, "reset again: rom address not 7FFF");
+    rd(2'd0, v); chk(v === 8'hFF, "reset again: port A not FF");
+    if (errors == 0)
+        $display("PASS cart_ppi: reset 7FFF, FA68 sequence, PC7 on / off, read 1 clk after the address, all 32768 addresses, 8255 directions, reset");
+    $finish;
+end
 endmodule
+`default_nettype wire

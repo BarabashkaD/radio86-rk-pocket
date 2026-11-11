@@ -1,6 +1,4 @@
-import inspect
 import os
-import re
 import sys
 import unittest
 
@@ -11,31 +9,39 @@ import run_core_machine  # noqa: E402
 core = run_core_machine.core
 
 
-class CoreMachineSubsetTest(unittest.TestCase):
+class CoreMachineTest(unittest.TestCase):
     def test_runner_interface(self):
-        self.assertEqual(list(inspect.signature(core.build_and_run).parameters),
-                         ['tools', 'name', 'params', 'frames', 'seed', 'mutant', 'ref_rev', 'mem'])
-        self.assertEqual(list(inspect.signature(core.compare_stall).parameters), ['name', 'frames'])
-        self.assertEqual(core.OUT, os.path.join('build', 'sim', 'machine'))
+        self.assertIn(run_core_machine.TEST, core.TESTS)
+        test = core.TESTS[run_core_machine.TEST]
+        files = test['files']() if callable(test['files']) else test['files']
+        self.assertIn(core.MEM, files)           # the file --mem replaces
+        self.assertEqual(core.OUT, os.path.join('build', 'sim', 'machine16'))
+        self.assertTrue(os.path.isfile(run_core_machine.RUNNER), run_core_machine.RUNNER)
+        self.assertEqual(os.path.normcase(os.path.abspath(core.__file__)),
+                         os.path.normcase(os.path.abspath(run_core_machine.RUNNER)))
 
-    def test_subset_matches_the_core_runner(self):
-        self.assertLessEqual(set(run_core_machine.SUBSET), set(core.RUNS))
-        self.assertLessEqual(set(run_core_machine.EXTRA), set(run_core_machine.SUBSET))
-        self.assertEqual(run_core_machine.EXTRA, {'stall_frac': {'FREEZE_FRAMES': 0}})
-        self.assertEqual(sorted(run_core_machine.runs()), sorted(run_core_machine.SUBSET))
-        for name, params in run_core_machine.runs().items():
-            self.assertEqual(params, dict(core.RUNS[name], **run_core_machine.EXTRA.get(name, {})), name)
-
-    def test_extra_keys_are_tb_parameters(self):
-        with open(os.path.join(core.ROOT, core.TB), encoding='utf-8') as f:
-            tb = f.read()
-        for name, extra in run_core_machine.EXTRA.items():
-            for key in extra:
-                self.assertRegex(tb, re.compile(r'\bparameter\s+(integer\s+)?%s\b' % re.escape(key)), '%s: %s' % (name, key))
+    def test_command_line(self):
+        cmd = run_core_machine.command('iverilog-path')
+        self.assertEqual(cmd[:6], [sys.executable, '-B', run_core_machine.RUNNER, '--iverilog', 'iverilog-path',
+                                   'machine16'])
+        self.assertEqual(cmd[6], '--mem')
+        mem = cmd[7:]
+        self.assertEqual(mem, [os.path.join(ROOT, 'fpga', 'sim', 'memory', 'tb_rk86_mem16.v'),
+                               os.path.join(ROOT, 'fpga', 'rtl', 'pocket_memory.v')])
+        for path in mem:
+            self.assertTrue(os.path.isabs(path), path)
+        self.assertIn('--frames', run_core_machine.command('iverilog-path', frames=3))
 
     def test_memory_model_files_exist(self):
         for path in run_core_machine.MEM:
             self.assertTrue(os.path.isfile(path), path)
+
+    def test_fault(self):
+        self.assertEqual(run_core_machine.FAULT_EXPECTED, 'ERROR: dma byte')
+        self.assertTrue(os.path.isfile(run_core_machine.FAULT_PATCH), run_core_machine.FAULT_PATCH)
+        self.assertEqual(core.patched_files(run_core_machine.FAULT_PATCH), ['fpga/rtl/pocket_memory.v'])
+        self.assertEqual(run_core_machine.FAULT_DIR,
+                         os.path.join(ROOT, 'build', 'sim', 'core_machine', 'neg_memory_dropped_after_rd'))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,20 @@
+diff --git a/fpga/rtl/pocket_memory.v b/fpga/rtl/pocket_memory.v
+index 182cc46..c0bb20c 100644
+--- a/fpga/rtl/pocket_memory.v
++++ b/fpga/rtl/pocket_memory.v
+@@ -36,12 +36,14 @@ wire [15:0] port_a = load_active ? load_a : ram_write ? {1'b0, bus_a[14:0]} : in
+ wire port_we = load_active ? load_we : ram_write;
+ wire [7:0] port_d = load_active ? load_d : cpu_do;
+ reg [15:0] read_a = 16'd0;
++reg rd_q = 1'b0;
+ always @(posedge clk) begin
+     if (port_we) ram[port_a] <= port_d;
+     read_a <= port_a;
++    rd_q <= mem_rd;
+     prev_wr_n <= reset ? 1'b1 : cpu_wr_n;
+     if (port_we && port_a == 16'h7606) rus_mode <= port_d[0];
+ end
+-assign mem_di = ram[read_a];
++assign mem_di = rd_q ? ram[read_a] : 8'hFF;
+ endmodule
+ `default_nettype wire

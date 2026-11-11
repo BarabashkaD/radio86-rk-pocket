@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_keyboard.v b/fpga/rtl/pocket_keyboard.v
+index e119b92..b3a9363 100644
+--- a/fpga/rtl/pocket_keyboard.v
++++ b/fpga/rtl/pocket_keyboard.v
+@@ -22,7 +22,7 @@ module pocket_keyboard #(
+     parameter integer TAP_MS = 250,
+     parameter integer CHORD_MS = 60,
+     parameter integer RUS_MIN_MS = 60,
+-    parameter integer MIN_HOLD_MS = 80,
++    parameter integer MIN_HOLD_MS = 2,
+     parameter integer REPEAT_DELAY_MS = 400,
+     parameter integer REPEAT_MS = 100
+ )(

@@ -1,8 +1,10 @@
 `timescale 1ns/1ps
 `default_nettype none
-// pocket_window: h_cnt 60..467 and the even v_cnt 0..598 of a 516 x 620 dot stream with a dot
-// every third clk; the address runs 0..122399, start at 0 and finish at 122399 in each frame.
+// pocket_window: h_cnt 42..449 and v_cnt 0..299 (one native line per window line) of a 516 x 310
+// raster (pocket_raster's lengths) with a dot every third clk; the address runs 0..122399, start at 0
+// and finish at 122399 in each frame.
 module tb_pocket_window;
+localparam integer X0 = 42;            // the window's first h_cnt (pocket_window X0)
 reg clk = 1'b0;
 always #5 clk = ~clk;
 reg [10:0] h = 11'd0, v = 11'd0;
@@ -18,14 +20,14 @@ always @(posedge clk) begin
     div <= div == 2'd2 ? 2'd0 : div + 2'd1;
     s_ce <= div == 2'd1;
     if (s_ce) begin
-        if (h == 11'd515) begin h <= 11'd0; v <= v == 11'd619 ? 11'd0 : v + 11'd1; end
+        if (h == 11'd515) begin h <= 11'd0; v <= v == 11'd309 ? 11'd0 : v + 11'd1; end
         else h <= h + 11'd1;
     end
 end
 integer frames = 0, count = 0, eh, ev;
 always @(negedge clk)
     if (valid) begin
-        eh = 60 + address % 408; ev = 2 * (address / 408);
+        eh = X0 + address % 408; ev = address / 408;
         if (address != count) begin $display("ERROR: address %0d, expected %0d", address, count); $finish; end
         if (data !== (eh[0] ^ ev[1] ^ eh[3])) begin $display("ERROR: dot at %0d", address); $finish; end
         if (start !== (address == 0) || finish !== (address == 122399)) begin $display("ERROR: markers at %0d", address); $finish; end

@@ -15,11 +15,11 @@ wire active, we, done;
 wire [14:0] a;
 wire [7:0] d;
 wire [7:0] mem_di;
-wire cpu_ready, cpu_write, rus_mode;
+wire cpu_write, rus_mode;
 pocket_cold_clear clear(.clk(clk), .start(start), .active(active), .we(we), .a(a), .d(d), .done(done));
-pocket_memory dut_mem(.clk(clk), .reset(reset), .cpu_a(cpu_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(1'b0),
-    .vid_a(16'h0000), .vid_rd(1'b0), .window_ready(1'b1), .mem_di(mem_di), .cpu_ready(cpu_ready),
-    .cpu_write(cpu_write), .load_active(active), .load_we(we), .load_a({1'b0, a}), .load_d(d), .rus_mode(rus_mode));
+pocket_memory dut_mem(.clk(clk), .reset(reset), .bus_a(cpu_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(1'b0),
+    .aen(1'b0), .mem_rd(1'b0), .mem_di(mem_di), .cpu_write(cpu_write), .load_active(active), .load_we(we),
+    .load_a({1'b0, a}), .load_d(d), .rus_mode(rus_mode));
 integer i, wcount = 0;
 always @(posedge clk) if (we) wcount = wcount + 1;
 task fail(input [8*64-1:0] what);

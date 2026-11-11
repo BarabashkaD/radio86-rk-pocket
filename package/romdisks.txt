@@ -1,7 +1,7 @@
 Radio-86RK ROM disks
 
-The ROM disk is a 32 KB memory that the Radio-86RK reads through its second 8255
-(A000-BFFF). At start the core loads romdisk.bin from this folder.
+The ROM disk is a 32 KB memory on the ports of the Radio-86RK's second 8255 (the
+A000-BFFF block). At start the core loads romdisk.bin from this folder.
 
 Run a program from the ROM disk
 1. Open the on-screen keyboard with L+R (D-pad selects a key, B presses it, X is CR).

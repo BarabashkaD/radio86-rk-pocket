@@ -2,112 +2,103 @@
 
 The FPGA side of the Radio-86RK core for the Analogue Pocket (Cyclone V 5CEBA4F23C8, Quartus Prime Lite 25.1std). It is self-contained: the SD package in `../package/` only needs the bitstream that this directory builds.
 
-The Radio-86RK machine is the Karabas core (`rk86_machine`, `rk86_video`, `rk86_video_stream`). `fpga/` reads it only through `RK86_CORE_DIR`, the core's `src` directory; the default is `../../cores/karabas-go-core-rk86/src`, the submodule. The core sources are never copied or patched. Moving `fpga/` elsewhere means changing `RK86_CORE_DIR`.
+The Radio-86RK machine is `rk86_machine16` of the Karabas core fork (`src/rtl/rk86_16/`, since 0.8.0): the original's 16 MHz machine at bus-cycle level, every chip to its data sheet. `fpga/` reads it only through `RK86_CORE_DIR`, the core's `src` directory, and its source list `rk86_machine16.prj`; the default is `../../cores/karabas-go-core-rk86/src`, the submodule. The core sources are never copied or patched. Moving `fpga/` elsewhere means changing `RK86_CORE_DIR`.
 
 ## Architecture
 
 The Karabas boards and the Pocket run the same Radio-86RK code: the board-neutral modules of the Karabas core (the CPU, DMA, CRT controller, PPI, the address decoding and the native video). Each platform puts its own board around them: the clock, the memory and the ROMs, the keyboard, the device in the window A000-BFFF, the display and the sound. How a platform connects the modules is in the core's [docs/integration.md](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/c7d7a9288f1fb14e515572e972af3dec34cc5b53/docs/integration.md); its [README](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/c7d7a9288f1fb14e515572e972af3dec34cc5b53/README.md#architecture) has the Karabas side in more detail (both at the commit the submodule pins).
 
+The Pocket runs `rk86_machine16`; the Karabas boards keep `rk86_machine`. From the submodule the Pocket uses only `src/rtl/rk86_16/`, `src/rk86_machine16.prj`, `src/sim/machine16/`, `src/sim/negative.py`, `src/roms/BIOS.BIN`, `src/roms/FONT.BIN` and `pk/`. Planned: the chip models and the machine move into their own repositories.
+
 ```mermaid
 flowchart LR
-    subgraph kg["Karabas Go, Mini, Mini G: radio86rk*.v (Spartan-6, ISE 14.7)"]
-        k_mcu["mcu<br/>link to the board MCU:<br/>USB HID, SD card, OSD"]
-        k_kbd["karabas_keyboard<br/>HID and joysticks<br/>to the key matrix"]
-        k_mem["SRAM<br/>ROMs and tape images<br/>written by loader.v"]
-        k_sd["SD card"]
-        k_vid["rk_video<br/>font ROM, frame buffer,<br/>VGA timing"]
-        k_out["OSD,<br/>VGA or HDMI"]
-        k_snd["beeper, DAC,<br/>HDMI audio"]
+    subgraph core["submodule: rk86_machine16 (src/rtl/rk86_16/)"]
+        m16["8224 and IE4 clocks, 8080,<br/>8257, 8275, 8255, video path,<br/>address decoding"]
     end
-    subgraph core["Karabas core: cores/karabas-go-core-rk86 (shared, not copied)"]
-        m["rk86_machine<br/>K580VM80A CPU, K580VT57 DMA,<br/>K580VG75 CRT, K580VV55 PPI,<br/>address decoding"]
-        nv["rk86_video<br/>CRT timebase, dots"]
-        st["rk86_video_stream<br/>native dot stream<br/>(used by the Pocket only)"]
-    end
-    subgraph pk["Analogue Pocket: core_top.v, pocket_system, radio86rk_pocket (Cyclone V, Quartus)"]
-        p_ast["pocket_slot_loader<br/>data slots: monitor,<br/>font, ROM disk"]
-        p_mem["pocket_memory<br/>RAM in block RAM,<br/>cpu_ready"]
-        p_cart["pocket_cart_ppi<br/>ROM disk"]
+    subgraph pk["Pocket: core_top.v, pocket_system, radio86rk_pocket"]
+        p_ast["pocket_slot_loader<br/>monitor, font, ROM disk"]
+        p_mem["pocket_memory<br/>RAM and monitor, one port"]
+        p_cart["pocket_cart_ppi<br/>A000-BFFF block: second 8255,<br/>ROM disk"]
         p_set["pocket_interact<br/>Core Settings"]
-        p_kbd["pocket_remap, pocket_keyboard<br/>buttons, K1 panel state"]
-        p_win["pocket_window<br/>408 x 300"]
-        p_fv["pocket_frame_video<br/>two frame banks,<br/>K1 panel, 60 Hz"]
+        p_kbd["pocket_remap, pocket_keyboard<br/>buttons, K1 state"]
+        p_ras["pocket_raster<br/>locks to HRTC, VRTC"]
+        p_win["pocket_window<br/>display window 408 x 300"]
+        p_fv["pocket_frame_video<br/>two frame banks, K1 panel, 60 Hz"]
         p_snd["pocket_audio<br/>48 kHz I2S"]
     end
-    k_mcu --> k_kbd
-    k_mcu --> k_mem
-    k_kbd <-->|"key matrix"| m
-    k_mem <-->|"CPU and DMA bus"| m
-    k_sd <-->|"A000-BFFF"| m
-    nv <--> k_vid --> k_out
-    m -->|"pc0, inte"| k_snd
-    m <--> nv
-    nv --> st
     p_ast --> p_mem
     p_ast --> p_cart
-    p_ast -->|"font"| nv
-    p_mem <-->|"CPU and DMA bus"| m
-    p_cart <-->|"A000-BFFF"| m
-    p_kbd <-->|"key matrix"| m
-    st --> p_win --> p_fv
+    p_ast -->|"font"| m16
+    p_mem <-->|"bus_a: CPU, or DMA while AEN"| m16
+    p_cart <-->|"ext_rd_n, ext_we_n, ext_di; bus_a A1, A0"| m16
+    p_kbd <-->|"key matrix"| m16
+    m16 -->|"dots, HRTC, VRTC"| p_ras --> p_win --> p_fv
     p_set -->|"Keys, Keys on, Escape"| p_kbd
-    p_kbd -->|"panel state<br/>(pocket_bus_cdc)"| p_fv
-    m -->|"pc0, inte"| p_snd
+    p_kbd -->|"panel state (pocket_bus_cdc)"| p_fv
+    m16 -->|"inte"| p_snd
 ```
-
-Side by side:
-
-| Part | Karabas boards | Analogue Pocket |
-|---|---|---|
-| Top | `src/radio86rk.v`, `radio86rk_mini.v`, `radio86rk_minig.v`; XC6SLX25, ISE 14.7 | `core/core_top.v` (APF template: pins, bridge, PLL) with one `pocket_system` (assets, settings, video, audio) around `radio86rk_pocket` (the board); 5CEBA4F23C8, Quartus 25.1std |
-| Machine | `rk86_machine`, `rk86_video` (inside `rk_video`) | the same modules, from the submodule, plus `rk86_video_stream` |
-| Clock | 40 MHz from a PLL (the signal is historically named `clk50`), `ce` = 1 | `clk_74a` (74.25 MHz) with `ce` on 160 of 297 ticks: 40 MHz on average (below) |
-| Memory | external SRAM, `cpu_ready` = 1 | `pocket_memory`: RAM 0000-7FFF and the monitor (8000-87FF of the array) in one byte-wide block RAM with one port (the CPU, the DMA while it holds the bus, the loader in reset); `cpu_ready` waits 1 clk for a read and for the ROM disk; the RAM cleared at the first boot and by Cold boot |
-| Monitor and font | `BIOSSD.BIN` or `BIOS.BIN` (OSD switch "ROM"), written into the SRAM from the core file by the MCU; the font in a Coregen ROM | `BIOS.BIN` (the stock monitor) into `pocket_memory` and `FONT.BIN` into its own byte-wide memory (`pocket_rom8`), written byte by byte from the data slots (`pocket_slot_loader`), no checks |
-| Window A000-BFFF | the SD card, used by `BIOSSD.BIN` | the ROM disk behind an 8255 (`pocket_cart_ppi`), as on the real machine |
-| Programs | tape images (`.rkr`, `.rk`, `.gam`) from the SD card through the OSD, written into the memory by `loader.v`; Autorun types the start keys (`macros.v`) | from the ROM disk menu (`R0,1FF,0`, `G0`); slot 3 is reserved for tape images |
-| Keyboard | a USB keyboard and joysticks through the MCU (`hid_parser`, `karabas_keyboard`) | the Pocket buttons (`pocket_remap`, `pocket_keyboard`) and the K1 on-screen keyboard; the Dock USB keyboard is reserved |
-| Video | `rk_video`: frame buffer and VGA timing; VGA (Go) or HDMI (Mini, Mini G) | `rk86_video_stream` into `pocket_window` (408 x 300, the same window as the Karabas frame buffer), two frame banks in `pocket_frame_video` to the 60 Hz Pocket screen, the K1 panel drawn over it |
-| Sound | `pc0` and `inte` mixed per board: beeper pin, DAC, HDMI audio | `pc0 ^ inte` (the Karabas beeper) to 48 kHz I2S (`pocket_audio`) |
-| Settings | OSD (MCU soft switches) | Core Settings (`package/core/interact.json`, `pocket_interact`) |
 
 ## Directories
 
 | Path | Content |
 |---|---|
-| `apf/`, `core/` | the APF template (open-fpga/core-template da3a021) with the Analogue notices; `core/core_top.v` holds the pins, the bridge, the PLL and one instance of `pocket_system` |
-| `rtl/` | our logic; `pocket_system.v` is everything behind the template, `radio86rk_pocket.v` is the board around the machine |
-| `quartus/` | `ap_core.qsf`, `create_project.tcl`, the CDC and timing report scripts |
-| `sim/` | `run_sim.py` and `frame_compare.py`; `unit/` module TBs, `system/` the TB of `pocket_system`, `memory/` the Pocket memory for the core's machine TB, `negative/` faults as `.patch`, `golden/` the reference frames of the earlier proof-of-concept core |
+| `apf/`, `core/` | APF template (open-fpga/core-template da3a021) with the Analogue notices; `core/core_top.v`: pins, bridge, PLL, one `pocket_system` |
+| `rtl/` | our logic; `pocket_system.v` is everything behind the template, `radio86rk_pocket.v` the board around the machine |
+| `quartus/` | `ap_core.qsf`, `create_project.tcl`, CDC and timing report scripts |
+| `sim/` | `run_sim.py`, `frame_compare.py`, `run_core_machine.py`; `unit/`, `system/`, `memory/` (`tb_rk86_mem16.v`), `cpu16/`, `negative/` (faults as `.patch`), `golden/` (reference frames) |
 
-## How the clocks work
+## Clocks
 
 ```text
-Pocket (APF) clk_74a = 74.25 MHz
+clk_74a = 74.25 MHz
  |
- +--> clock enable: 160 of every 297 ticks ----> 40 MHz timebase (on average exactly 40.000 MHz)
- |     the Radio-86RK machine, the memory, the        |
- |     keyboard, the ROM disk, the bridge             +--> CPU: one step every 28  = 40 / 28 = about 1.43 MHz
- |                                                    +--> screen: one dot every 3 = 13.33 MHz
- |                                                    +--> a frame every 959 760   = 41.7 frames per second
- |                                                                  |
- |                                                              frame buffer (two banks)
- |                                                                  |
- +--> PLL ---> clk_core_12288 = 12.288 MHz ------------> Pocket screen: 60 Hz, 408 x 300 shown
-                                         ------------> sound: 48 kHz I2S (the beeper)
+ +--> ce16: 64 of every 297 ticks = 16 MHz on average (the original's crystal): machine, memory, keyboard, ROM disk, bridge
+ |     +--> 8224: Φ1 / Φ2 every 9 = 1.778 MHz: CPU; the 8257 on both Φ2 edges
+ |     +--> К155ИЕ4: every 2 = 8 MHz dots; every 12 = 1.333 MHz 8275 character clock
+ |     +--> 8275: 516 dots x 310 lines = 50.01 Hz, single scan (from the monitor's init bytes)
+ |              |
+ |          pocket_raster, pocket_window (display window), frame buffer (two banks)
+ |              |
+ +--> PLL: 12.288 MHz --> Pocket screen 60 Hz, 408 x 300; sound 48 kHz I2S
 ```
 
-- **The machine runs on `clk_74a`,** the 74.25 MHz clock the Pocket gives every core, not on a PLL clock. It advances only when a clock enable is high: on 160 of every 297 ticks. On average that is exactly 74.25 × 160 / 297 = **40 MHz**, the master timebase of the Karabas core; on the Karabas boards it is a real 40 MHz clock with the enable always on.
-  - Programs run at exactly the Karabas core's speed, with no drift.
-  - Single steps are 13.5 or 26.9 ns apart instead of an even 25 ns. Nothing outside sees that jitter: the picture is re-timed by the frame buffer, and the sound is sampled at 48 kHz.
-- **From the 40 MHz timebase** the core derives the CPU, the screen dots and the frames (the Karabas core's [docs/integration.md](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/c7d7a9288f1fb14e515572e972af3dec34cc5b53/docs/integration.md), section 2). The CPU takes a step every 28 timebase steps: **40 / 28 ≈ 1.43 MHz**.
-  - The original Radio-86RK's CPU ran at about **1.78 MHz**, so the replica's CPU is about 20% slower. Why, how to reach the original speed, and a configurable speed with turbo modes are planned follow-up tasks.
-- **The PLL is used only for the Pocket's screen and sound.** It makes 12.288 MHz, which APF requires for the 60 Hz video output and the 48 kHz audio. A frame buffer with two banks sits between the machine's 41.7 Hz frames and the 60 Hz screen.
-- **If the PLL loses lock** (rare: a power transient, ESD), only the picture and sound stop. The machine, its memory and the running program go on. A watchdog restarts the PLL if it does not lock again by itself within 28 ms, and the picture comes back with the program still running.
+- The 16 MHz periods are 53.9 or 67.3 ns (jitter); the frame buffer and the 48 kHz sampling hide it.
+- The dividers run freely, as on the board. Reset is held 144 `ce16`. The 8275 has no reset pin; it runs until the monitor's Reset command.
+- The PLL drives only screen and sound. On lock loss only they stop; a watchdog restarts the PLL after 28 ms.
+
+## The 16 MHz machine
+
+Origin, licence and changes of each file: the fork's [src/rtl/rk86_16/README.md](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/fb1717c004df150b4428ac3a5558face2afaf2e5/src/rtl/rk86_16/README.md) and the file headers. Sources of behaviour: the data sheets, then the boards (Радио 1986, Kiselev 1.4). Where the data sheets are silent, the decisions and planned real-hardware checks are in that README.
+
+| Chip | File | Model |
+|---|---|---|
+| 8080 (КР580ВМ80А) | `k580vm80a.v` | Vslav's model, unchanged but for line endings; READY high, INT low |
+| 8224, К155ИЕ4 | `rk86_clocks16.v` | Φ1 / Φ2, RESET and READY flip-flops, STSTB; dot and character clocks |
+| 8257 (КР580ВТ57) | `k580vt57.v` | to the Intel data sheet, from Tselikov's model with Sorgelig's changes |
+| 8275 (КР580ВГ75) | `k580vg75.v` | to the Intel data sheet, from the same base; HRTC and VRTC are its outputs |
+| 8255 (КР580ВВ55А) | `k580vv55.v` | to the data sheet: modes 0, 1, 2; the keyboard 8255 and the second 8255 (A000-BFFF block) |
+| video path | `rk86_video16.v` | font ROM on CC and LC, К155ИР13 shift register, К155ТМ2, RVV as on Kiselev 1.4 |
+| board | `rk86_machine16.v` | the Радио 1986 glue: address decoder, ЧТЕНИЕ = DBIN XOR MEMW, memory written by CPU WR only, start-up mapping |
+
+- **Address map** (the Радио 1986 board's design, reproduced): the decoder looks only at A15-A13 and selects one device per 8 KB block: RAM 0000-7FFF, keyboard 8255 8000-9FFF, the A000-BFFF block (second 8255), the 8275 C000-DFFF, E000-FFFF the 8257 (writes) and the monitor ROM (reads). An 8255 has 4 registers (port A, port B, port C, control), picked by its address pins A1, A0, which take address lines A1, A0; it decodes nothing else, so its registers repeat every 4 bytes of its block (A000-A003 is the copy the monitor and the ROM disk loader use). A port is 8 pins of the chip.
+- **The A000-BFFF block**: on the board the second 8255 (D14), the interface PPI whose ports go to the external connector; a ROM disk is one peripheral on it. The machine's ports for it are `ext_rd_n`, `ext_we_n`, `ext_di` (the "window" of the fork's sources).
+- **DMA** (the board's wiring): the 8257 uses only channel 2, memory to the 8275; its MEMR is not connected. While AEN is high the address bus carries the 8257's address, and the 8275 receives the byte of whatever is there (RAM, an 8255, the 8275, the monitor ROM): DMA reads are decoded like CPU reads. Bursts of 8 characters; the 8275 drops DRQ at every DMA write, so the 8257 makes one HOLD period per character. The CPU keeps about 45 % of the Φ cycles; programs run slower than in emulators that model continuous bursts.
+- **Memory**: one port at `bus_a` (CPU, or 8257 while AEN); the byte follows `bus_a` one `clk` later whatever the read strobe; written only by the CPU's WR, never during AEN or while the monitor is selected; no wait states.
+- **Start-up mapping**: from reset to the first read with A15 = 1 the monitor answers every address; RAM and devices are off.
+- **ROM disk**: `pocket_cart_ppi` in the A000-BFFF block: the fork's 8255 with Kiselev's ROM disk wiring: port B and PC0-PC6 = ROM A0-A14; port A = ROM data while PC7 is a low output; pins programmed as inputs float high (FF). Image from data slot 2. The 8255's A1, A0 come from the system address `bus_a`, also during DMA.
+- **Sound**: INTE only, as on both boards.
+
+## Video
+
+- The machine ends at the dots (8 MHz), HRTC and VRTC; the board's analogue mixer and the CRT monitor are not reproduced.
+- `rtl/pocket_raster.v`: dots from the HRTC fall, lines from the VRTC fall; a frame starts only for 200-1023 lines of 256-1023 dots; holds when the syncs stop. Status 0x28 counts these frames (about 50 per second).
+- `rtl/pocket_window.v`, the display window: 408 x 300, dots `X0` to `X0` + 407, lines 0-299, 1:1. `X0` = 42 shows text columns 6-73; it is also `WINDOW_X0` in `sim/run_sim.py`.
+- `rtl/pocket_frame_video.v` takes a finished frame only at a 60 Hz output frame start: about 25 picture updates per second.
+- System scenarios compare frames with `sim/golden/`, the cursor cell masked (`frame_compare.py --cursor --x0`).
 
 ## Bridge map
 
-Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the interact registers (`rtl/pocket_interact.v`) answer `0x0000_0000-0x0000_01FF`; the mux in `core/core_top.v` sends `0xF8xx_xxxx` to the APF command block. Any other address in the window reads 0.
+Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the interact registers (`rtl/pocket_interact.v`) answer `0x0000_0000-0x0000_01FF`; the mux in `core/core_top.v` sends `0xF8xx_xxxx` to the APF command block. Any other bridge address reads 0.
 
 | Address | Use |
 |---|---|
@@ -115,7 +106,7 @@ Registers decode all 32 address bits. Status (`rtl/pocket_system.v`) and the int
 | 0x0000_0008 | Flags: bit 0 boot done (PLL lock), 1 setup done, 2 `reset_n`, 3 assets valid, 4 memory ready |
 | 0x0000_0014, 0x1C, 0x20, 0x3C | Read 0 (the asset status and the CRC32 values until 0.6.3) |
 | 0x0000_0024 | CPU address (low 16 bits) |
-| 0x0000_0028 | Count of native frames |
+| 0x0000_0028 | Count of native frames (the frame starts of `pocket_raster`, about 50 per second) |
 | 0x0000_0034 | Keyboard panel: bit 7 panel open, bits 6:0 selected key id (0..66) |
 | 0x0000_0044 | Keyboard state: bit 0 RUS (`rus_mode`), 1 SS (Shift) line, 2 US (Ctrl) line, 3 RUS line, 4 Shift latch, 5 Dock keyboard |
 | 0x0000_0030, 0x38, 0x40 | Read 0 (the proof of concept's D/Enter injection, game keys and cartridge guard are removed) |
@@ -135,13 +126,13 @@ The interact registers have no reset. Pocket OS writes the saved values while `r
 
 ## On-screen keyboard (K1)
 
-- `rtl/pocket_keyboard.v`: the buttons as keyboard lines. The 64 matrix keys, and SS (Shift), US (Ctrl) and RUS/LAT as separate lines (ids 64..66), are pulled low and ANDed with the mapped keys. It also holds the panel state: open, selection, the Shift latch. Timings (tap, chord window, RUS minimum, minimum hold, auto-repeat) are parameters in milliseconds.
-- `rtl/pocket_k1_panel.v`: draws the 284 x 82 panel in the 12.288 MHz output stage (`pocket_frame_video.v`), 3 clocks of latency; the picture path is delayed to match. It reads the state once per frame (at x = 0, y = 0).
-- `rtl/pocket_k1_layout.vh`: generated key table, labels, small glyphs and palettes. Do not edit it. The single source is `scripts/k1/layout.py`; regenerate with `python -B scripts/k1/gen_verilog.py` (a test checks the file is up to date). The labels come from the monitor's key decoder, run on `BIOS.BIN` by `scripts/k1/monitor_decoder.py`.
-- `rtl/pocket_bus_cdc.v` (+ `.sdc`): a toggle handshake that carries the state word from `clk_74a` to the video clock whole. The constraint cuts the held-word path and the two token paths; the synchronizer stages stay timed.
-- Test model, not RTL (nothing includes it): `rtl/pocket_key_defs.vh`: `native_character`, the model of the monitor's decoder (FF06), checked against all 512 key and modifier cases.
+- `rtl/pocket_keyboard.v`: buttons as keyboard lines (64 matrix keys; SS, US, RUS as ids 64..66), panel state, Shift latch; timings in ms parameters.
+- `rtl/pocket_k1_panel.v`: the 284 x 82 panel in the 12.288 MHz output stage, 3 clocks latency; reads the state once per frame.
+- `rtl/pocket_k1_layout.vh`: generated from `scripts/k1/layout.py` by `scripts/k1/gen_verilog.py`; do not edit. Labels come from the monitor's decoder (`scripts/k1/monitor_decoder.py`).
+- `rtl/pocket_bus_cdc.v` (+ `.sdc`): toggle handshake of the state word, `clk_74a` to the video clock.
+- `rtl/pocket_key_defs.vh`: test model of the monitor's decoder (FF06), not RTL.
 
-The state bus (78 bits, `clk_74a` to the video clock):
+State bus (78 bits):
 
 | Bits | Meaning |
 |---|---|
@@ -154,7 +145,7 @@ The state bus (78 bits, `clk_74a` to the video clock):
 
 ## Data slots
 
-From `package/core/data.json`. The sizes are maximums (`size_maximum`).
+From `package/core/data.json`; sizes are maximums.
 
 | Id | Name | File | Address | Size (bytes) | Required | Parameters |
 |---|---|---|---|---|---|---|
@@ -162,11 +153,14 @@ From `package/core/data.json`. The sizes are maximums (`size_maximum`).
 | 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes | 10: core-specific, read-only |
 | 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 32768 | no | 75: also user-reloadable, core reset while loading |
 
-The files are written as they are, byte by byte (`pocket_slot_loader`); bytes beyond the size APF asked for, and every slot write while the core runs, are dropped. The ROM disk can be reloaded from the core's menu: APF holds the core in reset (Reset Enter), writes the new file, and the machine restarts at Reset Exit with the RAM kept (`pocket_cold_clear` runs only at the first boot and on Cold boot). A missing ROM disk is legal: its memory starts at FF, so A000-BFFF reads FF, as do the bytes after a shorter image. A wrong monitor or font runs as it is (no CRC, no red frame). The sizes and CRCs of the bundled files, checked when they are fetched and packaged, are in [../package/assets.json](../package/assets.json).
+- Written byte by byte as they are (`pocket_slot_loader`); bytes beyond the requested size and writes while the core runs are dropped. No checks.
+- A ROM disk reload: APF holds the core in reset, writes the file, the machine restarts with the RAM kept (`pocket_cold_clear` runs only at the first boot and on Cold boot).
+- Missing ROM disk: every ROM disk byte reads FF (port A of the second 8255), as do the bytes after a shorter image.
+- Sizes and CRCs of the bundled files: [../package/assets.json](../package/assets.json).
 
 ## Core Settings size limit
 
-On Pocket OS 2.7 the first version of the core did not start: the Pocket stopped right after opening `interact.json` (its log shows the file being opened, then the error; a working core goes on to `video.json`). Variants of the file, tried on the hardware:
+Pocket OS 2.7 stops right after opening `interact.json` when its lists are too large. Measured on the hardware:
 
 | File | Items | List options in total | Result |
 |---|---|---|---|
@@ -178,36 +172,27 @@ On Pocket OS 2.7 the first version of the core did not start: the Pocket stopped
 | 15 items, Map lists of 9 options | 15 | 97 | fails |
 | the first shipped file | 15 | 167 | fails |
 
-The documented limits (16 items, 16 options per list, 23-character names) were all met, so the Pocket has an undocumented limit on the total size of the lists, somewhere between 66 and 97 options. The Core Settings of this core are therefore kept small (8 items, 14 list options in total); `scripts/package.py` refuses more than 20.
+The documented limits were met in every case; the undocumented limit lies between 66 and 97 options. This core: 8 items, 14 list options; `scripts/package.py` refuses more than 20.
 
 ## Build and tests
 
-Prerequisites: Quartus Prime Lite 25.1std (`QUARTUS_ROOT`, or `quartus_sh` on PATH), Icarus Verilog 13 (`IVERILOG` or `--iverilog`), Python 3, PowerShell 7. The ROM disk is fetched into `build/assets` by `scripts/fetch_assets.py`.
+Prerequisites: Quartus Prime Lite 25.1std (`QUARTUS_ROOT` or `quartus_sh` on PATH), Icarus Verilog 13 (`IVERILOG` or `--iverilog`), Python 3, PowerShell 7; `python -B scripts/fetch_assets.py` first.
 
 ```text
 pwsh -File scripts/build.ps1                       build in build/quartus, then scripts/check_build.py
-python -B fpga/sim/run_sim.py                      every test that is not slow
-python -B fpga/sim/run_sim.py --slow               adds the system scenarios
+python -B fpga/sim/run_sim.py                      unit tests
 python -B fpga/sim/run_sim.py --negative           each fault must fail with its named error
+python -B fpga/sim/run_sim.py --slow               adds the system scenarios
 python -B fpga/sim/run_sim.py boot menu            named tests only
+python -B fpga/sim/run_core_machine.py             the fork's machine16 TB on pocket_memory, then its fault
+python -B cores/karabas-go-core-rk86/src/sim/machine16/run_machine16_sim.py [--negative] [TEST ...]
 ```
 
-Tests of the keyboard:
-
-- `keyboard`: the buttons, the chord, L and R, navigation and auto-repeat, with five faults.
-- `k1_panel`: the panel in the output stage, 7 states, every pixel compared with the Python model (`scripts/k1/layout.py`).
-- `bus_cdc`: the handshake with random gaps and a destination reset.
-- `k1` (slow, about 40 minutes): the system scenario. It opens the panel, types through it, and captures 7 frames (Shift latch, RUS, Ctrl, three palettes). `python -B scripts/k1/check_frames.py build/sim/k1` compares each panel with the model.
-- `python -B -m unittest scripts/tests/test_k1_layout.py` (needs `IVERILOG`): the key table, the generated file, `native_character` against the monitor's decoder (512 cases) and every `k1_*` function against the model.
-
-The core's machine TB runs on the Pocket memory (`pocket_memory.v`) in place of the core's own model (`--iverilog` is needed when `iverilog` is not on PATH):
-
-```text
-python -B cores/karabas-go-core-rk86/src/sim/machine/run_machine_sim.py [--iverilog PATH] --mem fpga/sim/memory/tb_rk86_mem.v fpga/rtl/pocket_memory.v
-```
-
-`scripts/check_build.py` checks every Quartus build (no errors, timing met). Simulation and build results are not hardware verification.
+- The test list is `TESTS` in `sim/run_sim.py`; `tetris` is skipped unless named.
+- The test tiers, times and which tests a change needs: `../AGENTS.md`, section 6.
+- Remote runs in the rk86-vvp container: `../scripts/docker2tests/README.md`, section 9.
+- Simulation and build results are not hardware verification.
 
 ## Licences
 
-`apf/` and `core/` carry the Analogue notices (see `apf/TEMPLATE-NOTICES.md`). The rest of `fpga/` is BSD-3-Clause. All parts: [../LICENSES.md](../LICENSES.md).
+`apf/` and `core/` carry the Analogue notices (`apf/TEMPLATE-NOTICES.md`). The rest of `fpga/` is BSD-3-Clause. All parts: [../LICENSES.md](../LICENSES.md).
