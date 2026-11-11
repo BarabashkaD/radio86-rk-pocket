@@ -1,4 +1,4 @@
-Radio-86RK for Analogue Pocket, the machine of the Karabas core.
+Radio-86RK for Analogue Pocket: the original's 16 MHz timing, CPU 1.778 MHz, 50 Hz frames.
 * On-screen keyboard: the real 67 keys. L+R opens and closes it. Core Settings > Keyboard colours: Pink (v1.1), Grey (v1.4) or Mono.
 * Keyboard open: D-pad selects a key; B presses it (held while B is held); A Space, Y BS (Backspace), X CR (Enter), Start ESC; Select + D-pad the arrows.
 * L tap latches Shift (the next L tap releases it); L held is Ctrl; R is RUS/LAT. These work with the keyboard open or closed.
@@ -12,4 +12,4 @@ Radio-86RK for Analogue Pocket, the machine of the Karabas core.
 * Another ROM disk (.bin, up to 32768 bytes) can be loaded from the core's menu; the machine restarts, memory kept.
 * How to change the ROM disk and the programs of each disk: romdisks.txt in Assets/radio86rk/BarabashkaD.Radio86RK.
 * No Memories (savestates) and no sleep.
-Credits: Radio-86RK replica by Dmitry Tselikov; Karabas core by Andy Karpov and Oleh Chastukhin; ROM disk and keyboard design by Sergey Kiselev (https://github.com/skiselev/radio-86rk).
+Credits: Radio-86RK replica by Dmitry Tselikov; Karabas core by Andy Karpov and Oleh Chastukhin; ROM disk and keyboard design by Sergey Kiselev (https://github.com/skiselev/radio-86rk); 8080 model: Vslav (CC-BY 3.0, https://creativecommons.org/licenses/by/3.0/); 8257/8275 base: Apogee core by Sorgelig, D. Tselikov.

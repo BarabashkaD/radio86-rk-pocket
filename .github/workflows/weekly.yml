@@ -1,7 +1,10 @@
-# Long simulations, weekly and on demand (AGENTS.md section 6, "CI (GitHub Actions)"). Each matrix
-# entry is one system scenario on its own runner; the full machine TB runs all 6 runs of the core
-# runner. The failure artifacts leave out the simulation inputs (cartridge.hex is the ROM disk,
-# whose public distribution is undecided; monitor.hex, font.hex) and the compiled *.vvp.
+# Long simulations, weekly and on demand (AGENTS.md section 6, "CI (GitHub Actions)"). Every matrix
+# entry runs on its own runner: the system scenarios one each; run_core_machine.py (the fork's
+# machine16 on pocket_memory, then its fault); the fork's machine16 runner one test with its faults
+# each. The failure artifacts leave out the simulation inputs (cartridge.hex is the ROM disk, whose
+# public distribution is undecided; monitor.hex, bios.hex, font.hex) and the compiled *.vvp.
+# Time limits: 2-3 times the remote host's measured times (a GitHub runner's Icarus is that much
+# slower), at most GitHub's 360 min per job.
 name: weekly
 
 on:
@@ -24,11 +27,19 @@ jobs:
   system:
     name: System scenario ${{ matrix.scenario }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        scenario: [boot, powerup, nocart, reset, relock, system_watchdog, k1]
+        include:          # remote minutes measured 2026-11-11 in the comments
+          - { scenario: boot, timeout: 150 }              # 30
+          - { scenario: powerup, timeout: 120 }           # 21
+          - { scenario: nocart, timeout: 90 }             # 15
+          - { scenario: reset, timeout: 240 }             # 60
+          - { scenario: relock, timeout: 180 }            # 40
+          - { scenario: system_watchdog, timeout: 150 }   # 31
+          - { scenario: keytap, timeout: 210 }            # not measured yet (about 2.5 boots)
+          - { scenario: k1, timeout: 340 }                # 105
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,10 +69,10 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  core-machine-full:
-    name: Core machine TB, all runs
+  core-machine-pocket:
+    name: Core machine16 on pocket_memory
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 240    # machine16 40 min remote, then its fault
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,16 +82,53 @@ jobs:
         with:
           python-version: '3.14'
       - uses: ./.github/actions/setup-iverilog
-      - name: run_machine_sim.py --mem (g, frac, random, stall, stall_frac, stall_realign)
-        run: python -B cores/karabas-go-core-rk86/src/sim/machine/run_machine_sim.py --jobs 4 --mem fpga/sim/memory/tb_rk86_mem.v fpga/rtl/pocket_memory.v
+      - name: machine16 on pocket_memory and the fault memory_dropped_after_rd
+        run: python -B fpga/sim/run_core_machine.py
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: core-machine-full
+          name: core-machine-pocket
           path: |
-            cores/karabas-go-core-rk86/build/sim/machine/
+            cores/karabas-go-core-rk86/build/sim/machine16/
+            build/sim/core_machine/
             !**/cartridge.hex
             !**/monitor.hex
+            !**/bios.hex
+            !**/font.hex
+            !**/*.vvp
+          retention-days: 7
+          if-no-files-found: ignore
+
+  core-machine-fork:
+    name: Fork machine16 runner ${{ matrix.test }}
+    runs-on: ubuntu-24.04
+    # a unit TB with its faults: up to about 1.5 h remote; machine16 (40 min remote) with its faults
+    # takes the GitHub job maximum until the fork runner can split its faults
+    timeout-minutes: ${{ matrix.test == 'machine16' && 360 || 330 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [clocks16, vv55, vt57, vt57_func, vg75, vg75_dma, vg75_attr, video16, machine16]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: ./.github/actions/setup-iverilog
+      - name: run_machine16_sim.py --negative ${{ matrix.test }}
+        run: python -B cores/karabas-go-core-rk86/src/sim/machine16/run_machine16_sim.py --negative ${{ matrix.test }}
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-machine-fork-${{ matrix.test }}
+          path: |
+            cores/karabas-go-core-rk86/build/sim/machine16/${{ matrix.test }}/
+            !**/cartridge.hex
+            !**/monitor.hex
+            !**/bios.hex
             !**/font.hex
             !**/*.vvp
           retention-days: 7

@@ -3,7 +3,7 @@
 # Usage, from any directory: pwsh -File scripts/ci/unit-tests.ps1   (iverilog on PATH or IVERILOG set)
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '../..')
-$out = python -B -m unittest -v scripts/tests/test_package.py scripts/tests/test_k1_layout.py scripts/tests/test_check_repo.py scripts/tests/test_core_machine_subset.py scripts/tests/test_romdisk.py 2>&1
+$out = python -B -m unittest -v scripts/tests/test_package.py scripts/tests/test_k1_layout.py scripts/tests/test_check_repo.py scripts/tests/test_core_machine_subset.py scripts/tests/test_romdisk.py scripts/tests/test_frame_compare.py 2>&1
 $code = $LASTEXITCODE
 $out
 if ($code -ne 0) { exit $code }

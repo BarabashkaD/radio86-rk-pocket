@@ -1,0 +1,12 @@
+diff --git a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+--- a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
++++ b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
+@@ -109,7 +109,7 @@ always @(*) cpu_i = rd_mux(cpu_a, startup, mem_di, ppa_o, ext_di, crt_o);
+ assign dma_di = rd_mux(bus_a, startup, mem_di, ppa_o, ext_di, crt_o);
+ // the monitor: bus_a E000-FFFF (the CPU's or the 8257's address), every address during start-up (the 8257 makes no
+ // transfer then: RESET resets it, and start-up ends at the monitor's first read with A15 = 1, before it programs it)
+-always @(*) rom = startup || bus_a[15:13] == 3'b111;
++always @(*) rom = !aen && (startup || cpu_a[15:13] == 3'b111);
+ // GLUE-12: set by RESET, ended by the first read with A15 = 1 (DBIN AND A15, Kiselev 1.4 U17B / U20A)
+ always @(posedge clk) startup <= sys_reset | (startup & ~(cpu_dbin & cpu_a[15]));
+ //---------------- the video path

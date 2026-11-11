@@ -3,13 +3,15 @@
 
 Usage, from any directory:
     python -B fpga/sim/run_sim.py [--iverilog PATH] [--negative] [--slow] [TEST ...]
-TEST: names from TESTS (default: every test that is not slow; --slow adds the slow ones).
+TEST: names from TESTS (default: every test that is not slow; --slow adds the slow ones; a test with
+'skip' runs only when named).
 A test passes when vvp exits 0, prints a line that starts with PASS and no line that starts with
 ERROR or contains FATAL; with 'compare' the frame it writes must also pass frame_compare.py
 against its golden frame. --negative also runs every fault of the test: fpga/sim/negative/<name>
 .patch applied to copies under build/sim with git apply; each must fail and print its expected
 text. Outputs: build/sim/<test>[_<fault>]/ (ignored by git). Core sources: RK86_CORE_DIR
-(default cores/karabas-go-core-rk86/src), never copied unless a fault patches them.
+(default cores/karabas-go-core-rk86/src), never copied unless a fault patches them (a patch names a
+core file as cores/karabas-go-core-rk86/src/<path>; the copy is taken from RK86_CORE_DIR).
 """
 import argparse
 import json
@@ -31,13 +33,19 @@ def sim(*names):
     return [os.path.join(ROOT, 'fpga', 'sim', n) for n in names]
 
 
-def core_files():
+def core_files(prj='rk86_machine.prj', only=None):
+    """The core sources of a .prj in RK86_CORE_DIR; only: keep the files with these base names."""
     files = []
-    with open(os.path.join(CORE, 'rk86_machine.prj'), encoding='utf-8') as f:
+    with open(os.path.join(CORE, prj), encoding='utf-8') as f:
         for line in f:
             parts = line.split('"')
             if line.startswith('verilog') and len(parts) >= 3:
                 files.append(os.path.join(CORE, parts[1]))
+    if only is not None:
+        files = [p for p in files if os.path.basename(p) in only]
+        missing = set(only) - {os.path.basename(p) for p in files}
+        if missing:
+            raise SystemExit('ERROR: %s not in %s' % (', '.join(sorted(missing)), os.path.join(CORE, prj)))
     return files
 
 
@@ -48,7 +56,10 @@ HEX = {  # name in the run directory: (source, size)
 }
 
 TESTS = {
-    'cart_ppi': dict(top='tb_cart_ppi', files=sim('unit/tb_cart_ppi.v') + rtl('pocket_cart_ppi.v')),
+    'cart_ppi': dict(top='tb_cart_ppi',
+                     files=lambda: sim('unit/tb_cart_ppi.v') + rtl('pocket_cart_ppi.v')
+                     + core_files('rk86_machine16.prj', only=('k580vv55.v',)),
+                     negatives=[('cart_pc7_ignored', 'ERROR: cart_ppi: pc7')]),
     'audio': dict(top='tb_native_audio', files=sim('unit/tb_native_audio.v') + rtl('pocket_audio.v')),
     'bus_cdc': dict(top='tb_bus_cdc', files=sim('unit/tb_bus_cdc.v') + rtl('pocket_bus_cdc.v'),
                     negatives=[('bus_cdc/copy_without_req', 'ERROR: copied a held value')]),
@@ -67,9 +78,10 @@ TESTS = {
                         negatives=[('slot_loader/size_not_limited', 'byte beyond the size written'),
                                    ('slot_loader/lane_order', 'byte order')]),
     'memory': dict(top='tb_pocket_memory', files=sim('unit/tb_pocket_memory.v') + rtl('pocket_memory.v'),
-                   negatives=[('tag_not_invalidated', 'read after write'),
-                              ('window_ignored', 'window: ready without'),
-                              ('write_level', 'cpu_write is not one clk')]),
+                   negatives=[('write_level', 'cpu_write is not one clk'),
+                              ('write_during_aen', 'RAM changed during aen'),
+                              ('write_during_rom', 'RAM changed during rom'),
+                              ('memory_dropped_after_rd', 'output dropped')]),
     'cold_clear': dict(top='tb_cold_clear', files=sim('unit/tb_cold_clear.v') + rtl('pocket_cold_clear.v', 'pocket_memory.v'),
                        negatives=[('clear_skips_last', 'clear: we count is not 32768')]),
     'window': dict(top='tb_pocket_window', files=sim('unit/tb_pocket_window.v') + rtl('pocket_window.v'),
@@ -77,21 +89,41 @@ TESTS = {
     'interact': dict(top='tb_pocket_interact', files=sim('unit/tb_pocket_interact.v') + rtl('pocket_interact.v'),
                      negatives=[('keys_range', 'ERROR: read 0000010c'), ('keys_on_range', 'ERROR: read 00000110'),
                                 ('escape_range', 'ERROR: read 00000114'), ('palette_range', 'ERROR: read 00000118')]),
+    'raster': dict(top='tb_pocket_raster', files=sim('unit/tb_pocket_raster.v') + rtl('pocket_raster.v'),
+                   negatives=[('raster_rising_edge', 'ERROR: raster: h_cnt'),
+                              ('raster_no_h_reset', 'ERROR: raster: h_cnt'),
+                              ('raster_no_plausibility', 'ERROR: raster: frame start on an implausible raster')]),
     'watchdog': dict(top='tb_pll_watchdog', files=sim('unit/tb_pll_watchdog.v') + rtl('pocket_pll_watchdog.v'),
                      negatives=[('watchdog_never', 'ERROR: watchdog pulse count')]),
+    # rk86_machine16 with the CPU test program in place of the monitor, on the Pocket memory (pocket_memory
+    # through fpga/sim/memory/tb_rk86_mem16.v, the ports of the fork's model); about 8 native frames: slow
+    'cpu16': dict(top='tb_cpu16', slow=True, inputs=lambda out: cpu16_inputs(out), plusargs=['+bios=cpu_test.hex'],
+                  incdirs=lambda: [os.path.join(CORE, 'sim', 'machine16')],   # cpu_power_up.vh
+                  files=lambda: sim('unit/tb_cpu16.v', 'memory/tb_rk86_mem16.v') + rtl('pocket_memory.v')
+                  + core_files('rk86_machine16.prj'),
+                  negatives=[('cpu16_bus_bit', 'ERROR: cpu16: phase 1 case 1'),
+                             ('cpu16_startup_decode', 'ERROR: cpu16: device written during start-up'),
+                             # review A I2: during AEN the monitor ROM is not selected (the old glue): phase 7's
+                             # DMA bytes from F800-FFFF come from RAM
+                             ('cpu16_dma_rom_from_ram', 'ERROR: cpu16: phase 7 DMA byte')]),
 }
 
 
 SYSTEM_RTL = rtl('pocket_slot_loader.v', 'pocket_rom8.v', 'pocket_interact.v', 'pocket_memory.v',
-                 'pocket_cold_clear.v', 'pocket_window.v', 'pocket_remap.v', 'pocket_keyboard.v',
+                 'pocket_cold_clear.v', 'pocket_raster.v', 'pocket_window.v', 'pocket_remap.v', 'pocket_keyboard.v',
                  'pocket_bus_cdc.v', 'pocket_cart_ppi.v', 'pocket_frame_video.v', 'pocket_k1_panel.v', 'pocket_audio.v',
                  'pocket_pll_watchdog.v', 'radio86rk_pocket.v', 'pocket_system.v')
 
+# The first h_cnt of the 408 x 300 window (pocket_window.v X0): frame_compare.py places the cursor cell
+# of cursor.txt with it. Both change together.
+WINDOW_X0 = 42
 
-def system(scenario, compare=None, cart=None, extra=None):
+
+def system(scenario, compare=None, cart=None, extra=None, negatives=()):
     return dict(top='tb_system', slow=True, plusargs=['+scenario=' + scenario], compare=compare, cart=cart, extra=extra,
-                hex=['monitor.hex', 'font.hex', 'cartridge.hex'],
-                files=lambda: sim('system/tb_system.v') + SYSTEM_RTL + core_files())
+                hex=['monitor.hex', 'font.hex', 'cartridge.hex'], negatives=list(negatives),
+                incdirs=lambda: [os.path.join(CORE, 'sim', 'machine16')],   # cpu_power_up.vh (power_up.vh)
+                files=lambda: sim('system/tb_system.v') + SYSTEM_RTL + core_files('rk86_machine16.prj'))
 
 
 def game_plusargs(disk=9, file='XONIX1.RKR'):
@@ -106,7 +138,8 @@ def game_plusargs(disk=9, file='XONIX1.RKR'):
 
 
 TESTS.update({
-    'boot': system('boot', ('frame.hex', 'fpga/sim/golden/monitor-boot.hex')),
+    'boot': system('boot', ('frame.hex', 'fpga/sim/golden/monitor-boot.hex'),
+                   negatives=[('beeper_pc0_xor', 'beeper does not follow INTE')]),
     'powerup': system('powerup', ('frame.hex', 'fpga/sim/golden/monitor-boot.hex')),
     'nocart': system('nocart'),
     'reset': system('reset'),
@@ -117,9 +150,14 @@ TESTS.update({
     # local only (slow; the disks are built by scripts/romdisk/build_romdisks.py, not fetched)
     'game': system('game', cart=lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-9.bin'), extra=game_plusargs),
     'dpddt': system('dpddt'),
-    'tetris': system('tetris'),
+    # kept, but skipped unless named: the D-pad control of this TETRIS has a known problem (the maintainer,
+    # 2026-11-11); run it with: python -B fpga/sim/run_sim.py tetris
+    'tetris': dict(system('tetris'), skip='known D-pad control problem of this TETRIS; run it by name'),
+    # an 80 ms and a 1 ms button tap reach the monitor (pocket_keyboard on real milliseconds)
+    'keytap': system('keytap', negatives=[('keytap/min_hold_short', 'ERROR: keytap: the 1 ms tap')]),
     'k1': system('k1'),  # writes k1_<n>.hex and k1.log: python -B scripts/k1/check_frames.py build/sim/k1
-    'system_k1_panel': system('k1_panel'),  # CI: python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3
+    # the panel with the machine frozen; CI: python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3
+    'system_k1_panel': system('k1_panel'),
 })
 
 
@@ -163,6 +201,29 @@ def k1_panel_inputs(out):
         render.write_rgb_hex(os.path.join(out, 'k1_panel_exp_%d.hex' % n), render.picture(state, frame, error))
 
 
+def cpu16_inputs(out):
+    """tb_cpu16 input: fpga/sim/cpu16/cpu_test.asm assembled at F800, padded to 2048 bytes with FF."""
+    sys.path.insert(0, os.path.join(ROOT, 'scripts', 'romdisk'))
+    import asm8080
+    with open(os.path.join(ROOT, 'fpga', 'sim', 'cpu16', 'cpu_test.asm'), encoding='utf-8') as f:
+        origin, code, _ = asm8080.assemble(f.read())
+    if origin != 0xF800 or len(code) > 2048:
+        raise SystemExit('ERROR: cpu_test.asm: origin %04X, %d bytes (expected F800, at most 2048)' % (origin, len(code)))
+    with open(os.path.join(out, 'cpu_test.hex'), 'w', encoding='ascii', newline='\n') as f:
+        f.write(''.join('%02x\n' % b for b in code + bytes([0xFF] * (2048 - len(code)))))
+
+
+# A fault patch names a core file by its path in the default submodule checkout; it is read from
+# RK86_CORE_DIR, so a fault of a core file also works with another core directory.
+CORE_REL = 'cores/karabas-go-core-rk86/src/'
+
+
+def fault_source(rel):
+    if rel.startswith(CORE_REL):
+        return os.path.join(CORE, rel[len(CORE_REL):])
+    return os.path.join(ROOT, rel)
+
+
 def run(name, test, iverilog, vvp, env, fault=None):
     out = os.path.join(ROOT, 'build', 'sim', name + ('_' + fault if fault else ''))
     try:
@@ -182,7 +243,7 @@ def run(name, test, iverilog, vvp, env, fault=None):
         patch = os.path.join(NEG, fault + '.patch')
         copy_root = os.path.join(out, 'copy')
         for rel in patched_files(patch):
-            src, dst = os.path.join(ROOT, rel), os.path.join(copy_root, rel)
+            src, dst = fault_source(rel), os.path.join(copy_root, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copyfile(src, dst)
             files = [dst if os.path.normcase(f) == os.path.normcase(src) else f for f in files]
@@ -195,21 +256,26 @@ def run(name, test, iverilog, vvp, env, fault=None):
     if test.get('inputs'):
         test['inputs'](out)
     exe = os.path.join(out, name + '.vvp')
-    cmd = [iverilog, '-g2012', '-I', os.path.join(ROOT, 'fpga', 'rtl'), '-I', os.path.join(ROOT, 'fpga', 'sim', 'system'),
-           '-s', test['top'], '-o', exe] + files
+    incdirs = [os.path.join(ROOT, 'fpga', 'rtl'), os.path.join(ROOT, 'fpga', 'sim', 'system')]
+    incdirs += test['incdirs']() if test.get('incdirs') else []
+    cmd = [iverilog, '-g2012'] + [arg for d in incdirs for arg in ('-I', d)] + ['-s', test['top'], '-o', exe] + files
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=out, env=env)
     if res.returncode:
         return False, 'ERROR: iverilog: ' + (res.stdout + res.stderr)
     plusargs = test.get('plusargs', []) + extra
     res = subprocess.run([vvp, '-n', exe] + plusargs, capture_output=True, text=True, cwd=out, env=env)
     text = res.stdout + res.stderr
+    with open(os.path.join(out, 'vvp.log'), 'w', encoding='utf-8', newline='\n') as f:   # the INFO lines of a pass
+        f.write(text)
     lines = [l.strip() for l in text.splitlines()]
     ok = (res.returncode == 0 and any(l.startswith('PASS') for l in lines)
           and not any(l.startswith('ERROR') or 'FATAL' in l for l in lines))
     if ok and test.get('compare'):
         produced, golden = test['compare']
+        cursor = os.path.join(out, 'cursor.txt')
+        mask = ['--cursor', cursor, '--x0', str(WINDOW_X0)] if os.path.exists(cursor) else []
         cmp = subprocess.run([sys.executable, '-B', os.path.join(ROOT, 'fpga', 'sim', 'frame_compare.py'),
-                              os.path.join(out, produced), os.path.join(ROOT, golden)], capture_output=True, text=True)
+                              os.path.join(out, produced), os.path.join(ROOT, golden)] + mask, capture_output=True, text=True)
         text += cmp.stdout + cmp.stderr
         ok = cmp.returncode == 0
     return ok, text
@@ -233,7 +299,11 @@ def main():
         return 2
     env = dict(os.environ)
     env['PATH'] = bindir + os.pathsep + env.get('PATH', '')
-    names = a.tests or [n for n, t in TESTS.items() if a.slow or not t.get('slow')]
+    names = a.tests or [n for n, t in TESTS.items() if (a.slow or not t.get('slow')) and not t.get('skip')]
+    if not a.tests and a.slow:
+        for n, t in TESTS.items():
+            if t.get('skip'):
+                print('%s: skipped (%s)' % (n, t['skip']))
     unknown = [n for n in names if n not in TESTS]
     if unknown:
         print('ERROR: unknown tests: %s' % ', '.join(unknown))

@@ -2,6 +2,8 @@
 # Quartus build: the package dry run uses a stand-in bitstream and its zip is not uploaded. The
 # failure artifacts leave out the simulation inputs (cartridge.hex is the ROM disk, whose public
 # distribution is undecided; monitor.hex, font.hex) and the compiled *.vvp.
+# Time limits: 2-3 times the remote host's measured times (a GitHub runner's Icarus is that much
+# slower), plus about 5 min for the checkout, the iverilog cache and the assets.
 name: checks
 
 on:
@@ -48,7 +50,7 @@ jobs:
   sim-unit:
     name: Unit simulations and faults
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60     # serial: about 10-12 min remote
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,7 +80,7 @@ jobs:
   k1-panel:
     name: K1 panel scenario
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45     # 23 min remote with the machine running; frozen since: to be measured
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,7 +92,7 @@ jobs:
       - uses: ./.github/actions/setup-iverilog
       - name: Fetch and check the assets
         run: python -B scripts/fetch_assets.py
-      - name: system_k1_panel (system TB, about 9 native frames)
+      - name: system_k1_panel (system TB, the machine frozen, about 13 displayed frames)
         run: python -B fpga/sim/run_sim.py system_k1_panel
       - name: Panel captures against the model
         run: python -B scripts/k1/check_frames.py build/sim/system_k1_panel --expect 3
@@ -110,7 +112,7 @@ jobs:
   core-machine:
     name: Core machine TB subset
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60     # cpu16 about 7 min remote; its two faults stop early
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,17 +122,14 @@ jobs:
         with:
           python-version: '3.14'
       - uses: ./.github/actions/setup-iverilog
-      - name: g, stall, stall_realign, stall_frac on pocket_memory
-        run: python -B fpga/sim/run_core_machine.py --jobs 4
+      - name: cpu16 (rk86_machine16 on pocket_memory), then each fault must fail with its own error
+        run: python -B fpga/sim/run_sim.py --negative cpu16
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: core-machine
           path: |
-            cores/karabas-go-core-rk86/build/sim/machine/
-            !**/cartridge.hex
-            !**/monitor.hex
-            !**/font.hex
+            build/sim/cpu16*/
             !**/*.vvp
           retention-days: 7
           if-no-files-found: ignore

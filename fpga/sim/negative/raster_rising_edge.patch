@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_raster.v b/fpga/rtl/pocket_raster.v
+index f8145ae..6dad83a 100644
+--- a/fpga/rtl/pocket_raster.v
++++ b/fpga/rtl/pocket_raster.v
+@@ -28,7 +28,7 @@ reg hrtc_q = 1'b0, vrtc_q = 1'b0, vpend = 1'b0;
+ reg [10:0] h_r = MAX, v_r = MAX;
+ reg [10:0] lines = 11'd0;      // lines of the frame in progress (its line starts), saturating
+ reg good = 1'b0;               // every line of the frame in progress so far had LINE_MIN..LINE_MAX dots
+-wire hfall = hrtc_q && !hrtc;
++wire hfall = !hrtc_q && hrtc;
+ wire vfall = vrtc_q && !vrtc;
+ wire vstart = hfall && (vfall || vpend);                               // the first line after VRTC falls
+ wire line_ok = h_r >= LINE_MIN - 11'd1 && h_r <= LINE_MAX - 11'd1;    // the line ending here: h_r + 1 dots

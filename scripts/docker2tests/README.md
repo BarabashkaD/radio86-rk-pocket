@@ -135,7 +135,43 @@ fully frozen index, point apt at `snapshot.debian.org`.
 `docker load -i`), or copy this folder to the other host and run
 `docker compose build` there.
 
-## 9. Troubleshooting
+## 9. The batch runner `remote_sim.py`
+
+Runs the repository's test benches in the container with the same pass rules
+as the local runners: the core's `src/sim/machine16/run_machine16_sim.py`
+(`--runner fork`, `--repo` = the core's root) or the Pocket's
+`fpga/sim/run_sim.py` (`--runner pocket`, `--repo` = this repository's root;
+frame compares run on the PC on the fetched frames).
+
+```
+$env:RK86_VVP_KEY  = <the key lines from the container's console>
+$env:RK86_VVP_HOST = <docker host>          # or --host
+python -B scripts/docker2tests/remote_sim.py --runner pocket --repo . --jobs 2 --negative boot
+python -B scripts/docker2tests/remote_sim.py --runner fork --repo cores/karabas-go-core-rk86 machine16
+Remove-Item env:RK86_VVP_KEY
+```
+
+- Each job (a test, each of its faults with `--negative`, each `--mutant
+  PATCH`) is compiled on the PC, rewritten (section 6) and run in its own
+  folder; logs and outputs come back to `<repo>/build/sim/remote16/<run>/`
+  (kept with `--keep`).
+- Several runs share the container's CPUs: a run reserves `--jobs` slots and
+  waits until they are free. One call per long system scenario returns each
+  result as soon as it is done; do not mix minutes-long and hours-long jobs in
+  one call (the results come back when the whole call ends).
+- The run is started detached and polled, so a dropped connection does not stop
+  it; `--timeout` (seconds, default 7200) stops only this run. Long system
+  scenarios need `--timeout 43200`.
+- Compile from a tree nobody edits during the compile, e.g. a `git worktree` of
+  the commit under test (for the Pocket runner: `RK86_CORE_DIR` set to the
+  worktree's `src`). Fault patches made by temporary edits would otherwise end
+  up in the run.
+- `--mem FILE` (fork runner, one flag per file) compiles these files in place
+  of the core TB's memory model, e.g. the Pocket's
+  `fpga/sim/memory/tb_rk86_mem16.v` and `fpga/rtl/pocket_memory.v` (absolute
+  paths).
+
+## 10. Troubleshooting
 
 - `no client key`: copy the key lines from the container's console (Install,
   step 3) and run again.

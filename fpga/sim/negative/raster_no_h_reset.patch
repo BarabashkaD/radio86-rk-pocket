@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_raster.v b/fpga/rtl/pocket_raster.v
+index f8145ae..0d20db2 100644
+--- a/fpga/rtl/pocket_raster.v
++++ b/fpga/rtl/pocket_raster.v
+@@ -33,7 +33,7 @@ wire vfall = vrtc_q && !vrtc;
+ wire vstart = hfall && (vfall || vpend);                               // the first line after VRTC falls
+ wire line_ok = h_r >= LINE_MIN - 11'd1 && h_r <= LINE_MAX - 11'd1;    // the line ending here: h_r + 1 dots
+ wire plausible = vstart && good && line_ok && lines >= FRAME_MIN && lines <= FRAME_MAX;
+-assign h_cnt = hfall ? 11'd0 : h_r == MAX ? MAX : h_r + 11'd1;
++assign h_cnt = hfall ? h_r : h_r == MAX ? MAX : h_r + 11'd1;
+ assign v_cnt = vstart ? (plausible ? 11'd0 : MAX)
+              : h_cnt == MAX ? MAX                                     // the syncs stopped: no position
+              : !hfall || v_r == MAX ? v_r : v_r + 11'd1;

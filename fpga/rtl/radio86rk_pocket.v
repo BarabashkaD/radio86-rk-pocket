@@ -1,6 +1,7 @@
-// The Radio-86RK board of the Analogue Pocket around the board-neutral machine of the Karabas
-// core (rk86_machine, rk86_video, rk86_video_stream; docs/integration.md of the core), in one
-// clock domain, clk_74a (spec 5.1-5.6). Starts from the core's src/rk86_candidate.v.
+// The Radio-86RK board of the Analogue Pocket around rk86_machine16, the machine with the original
+// 16 MHz timing (the core's src/rtl/rk86_16, spec 0.8.0), in one clock domain, clk_74a: the 16 MHz
+// clock enable, the reset, the memory, the font, the ROM disk, the keyboard, the native raster
+// (pocket_raster) and the 408 x 300 display window (pocket_window), the beeper.
 `default_nettype none
 module radio86rk_pocket(
     input  wire        clk,               // clk_74a
@@ -32,14 +33,14 @@ module radio86rk_pocket(
     output wire [31:0] mode_status,       // bridge 0x44: {dock, shift latch, RUS, Ctrl, Shift lines, rus_mode}
     output wire [77:0] panel_state        // the K1 panel state (pocket_k1_panel), clk domain
 );
-//--------- the clock enable: 160 of 297 clk, 40 M ce/s on average (docs/integration.md 2) -----
+//--------- the clock enable: 64 of 297 clk_74a: 16 MHz on average (spec 4.5) -----
 reg [8:0] cadence = 9'd0;
-wire [9:0] cadence_sum = {1'b0, cadence} + 10'd160;
+wire [9:0] cadence_sum = {1'b0, cadence} + 10'd64;
 wire ce_next = cadence_sum >= 10'd297;
-reg ce = 1'b0;
+reg ce16 = 1'b0;
 always @(posedge clk) begin
     cadence <= ce_next ? cadence_sum - 10'd297 : cadence_sum[8:0];
-    ce <= ce_next;
+    ce16 <= ce_next;
 end
 
 //--------- the cold clear: first boot and Cold boot (spec 5.2), only after the slots ----------
@@ -56,51 +57,47 @@ wire load_we = clear_active ? clear_we : monitor_we;
 wire [15:0] load_a = clear_active ? {1'b0, clear_a} : {5'b10000, byte_a[10:0]};
 wire [7:0] load_d = clear_active ? clear_d : byte_d;
 
-//--------- the machine reset: every source is a clk register; held 15 ce (integration.md 3) ----
+//--------- the machine reset: every source is a clk register; held 144 ce16 (spec 4.2) ----
 wire run = apf_reset_n && assets_valid && memory_ready && !warm_reset;
-reg [3:0] rst_cnt = 4'd0;
+reg [7:0] rst_cnt = 8'd0;
 always @(posedge clk)
-    if (!run) rst_cnt <= 4'd0;
-    else if (ce && rst_cnt != 4'hF) rst_cnt <= rst_cnt + 4'd1;
-wire reset = rst_cnt != 4'hF;
+    if (!run) rst_cnt <= 8'd0;
+    else if (ce16 && rst_cnt != 8'd144) rst_cnt <= rst_cnt + 8'd1;
+wire reset = rst_cnt != 8'd144;
 
 //--------- the machine --------------
-wire [15:0] cpu_a, vid_a;
+wire [15:0] bus_a;
 wire [7:0] cpu_do, mem_di, kbd_rows, kbd_cols, ext_di;
 wire [2:0] kbd_shift;
-wire cpu_rd, cpu_wr_n, rom, startup, vid_rd, cpu_ready, pc0, inte, ext_we_n;
-wire cce, hrtc, vrtc, lten, vsp, rvv, hilight, irq;
-wire [3:0] line;
-wire [6:0] ochar;
-wire [1:0] lattr, gattr;
-rk86_machine machine(.clk(clk), .ce(ce), .reset(reset), .cpu_ready(cpu_ready),
-    .cce(cce), .hrtc(hrtc), .vrtc(vrtc),
-    .cpu_a(cpu_a), .cpu_do(cpu_do), .cpu_rd(cpu_rd), .cpu_wr_n(cpu_wr_n), .rom(rom), .startup(startup),
-    .vid_a(vid_a), .vid_rd(vid_rd), .mem_di(mem_di),
-    .ppa_pa(kbd_rows), .kbd_cols(kbd_cols), .kbd_shift(kbd_shift), .tape_in(1'b1),
-    .pc0(pc0), .inte(inte),
-    .line(line), .ochar(ochar), .lten(lten), .vsp(vsp), .rvv(rvv), .hilight(hilight),
-    .lattr(lattr), .gattr(gattr), .irq(irq), .ext_we_n(ext_we_n), .ext_di(ext_di));
-assign cpu_address = cpu_a;
-
-//--------- memory, the font, the ROM disk and its window --------------
-wire cart_ready, cpu_write, rus_mode;
-pocket_memory mem(.clk(clk), .reset(reset), .cpu_a(cpu_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(rom),
-    .vid_a(vid_a), .vid_rd(vid_rd), .window_ready(cart_ready), .mem_di(mem_di), .cpu_ready(cpu_ready),
-    .cpu_write(cpu_write), .load_active(load_active), .load_we(load_we), .load_a(load_a), .load_d(load_d),
-    .rus_mode(rus_mode));
+wire mem_rd, cpu_wr_n, rom, startup, aen, pc0, inte, ext_we_n, ext_rd_n;
+wire pix_ce, pix, hrtc, vrtc;
+wire [15:0] machine_cpu_a;
 wire [9:0] font_address;
 wire [7:0] font_data;
+rk86_machine16 machine(.clk(clk), .ce16(ce16), .reset(reset), .cpu_a(machine_cpu_a),
+    .bus_a(bus_a), .cpu_do(cpu_do), .mem_rd(mem_rd), .cpu_wr_n(cpu_wr_n), .rom(rom), .startup(startup), .aen(aen),
+    .mem_di(mem_di), .ppa_pa(kbd_rows), .kbd_cols(kbd_cols), .kbd_shift(kbd_shift), .tape_in(1'b1),
+    .pc0(pc0), .inte(inte), .font_addr(font_address), .font_data(font_data),
+    .pix_ce(pix_ce), .pix(pix), .hrtc(hrtc), .vrtc(vrtc), .ext_we_n(ext_we_n), .ext_rd_n(ext_rd_n), .ext_di(ext_di));
+assign cpu_address = machine_cpu_a;   // status register: the CPU's address, as before
+
+//--------- memory, the font, the ROM disk in the A000-BFFF block (second 8255) --------------
+wire cpu_write, rus_mode;
+pocket_memory mem(.clk(clk), .reset(reset), .bus_a(bus_a), .cpu_do(cpu_do), .cpu_wr_n(cpu_wr_n), .rom(rom),
+    .aen(aen), .mem_rd(mem_rd), .mem_di(mem_di), .cpu_write(cpu_write), .load_active(load_active),
+    .load_we(load_we), .load_a(load_a), .load_d(load_d), .rus_mode(rus_mode));
 pocket_rom8 #(.AW(10), .FILL(8'h00)) font_rom(.clk(clk), .we(font_we), .wa(byte_a[9:0]), .wd(byte_d),
     .ra(font_address), .rd(font_data), .tag());
-wire [14:0] cartridge_address, cartridge_tag;
+wire [14:0] cartridge_address;
 wire [7:0] cartridge_data;
 pocket_rom8 #(.AW(15), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
-    .ra(cartridge_address), .rd(cartridge_data), .tag(cartridge_tag));
-// the ROM disk memory starts at FF, so without a ROM disk the window reads FF
-pocket_cart_ppi cart(.clk(clk), .reset(reset), .write_strobe(cpu_write && cpu_a[15:13] == 3'd5),
-    .register_address(cpu_a[1:0]), .write_data(cpu_do), .read_data(ext_di), .rom_valid(1'b1),
-    .rom_address(cartridge_address), .rom_tag(cartridge_tag), .rom_data(cartridge_data), .read_ready(cart_ready));
+    .ra(cartridge_address), .rd(cartridge_data), .tag());
+// the A000-BFFF block (second 8255; the machine's "window": ext_rd_n, ext_we_n, ext_di). The decoder looks
+// only at A15-A13 and gates ext_rd_n / ext_we_n, so CS is tied active. The 8255's pins A1, A0 pick one of
+// its 4 registers; they take address lines A1, A0 of bus_a (the CPU's address, the 8257's during DMA), so
+// the registers repeat every 4 bytes. The ROM disk memory starts at FF: with no image port A reads FF.
+pocket_cart_ppi cart(.clk(clk), .reset(reset), .cs_n(1'b0), .rd_n(ext_rd_n), .wr_n(ext_we_n),
+    .a(bus_a[1:0]), .d_i(cpu_do), .d_o(ext_di), .rom_address(cartridge_address), .rom_data(cartridge_data));
 
 //--------- keyboard --------------
 wire [69:0] button_map;
@@ -126,25 +123,21 @@ assign mode_status = {26'd0, dock_keyboard, shift_latch, rus_line, ctrl_line, sh
 // held and crossed to the pixel clock in pocket_system (pocket_bus_cdc)
 assign panel_state = {palette, pulled, rus_line, ctrl_line, shift_line, rus_mode, selection, panel_open};
 
-//--------- the native video and the window (the K1 panel is drawn in pocket_frame_video) ----------
-wire pix_ce, pix;
+//--------- the native raster and the display window (the K1 panel is drawn in pocket_frame_video) ----------
 wire [10:0] h_cnt, v_cnt;
-rk86_video native_video(.clk(clk), .ce(ce), .line(line), .ichar(ochar), .vsp(vsp), .lten(lten), .rvv(rvv),
-    .cce(cce), .hrtc(hrtc), .vrtc(vrtc), .font_addr(font_address), .font_data(font_data),
-    .pix_ce(pix_ce), .pix(pix), .h_cnt(h_cnt), .v_cnt(v_cnt));
-wire s_ce, s_de, s_dot, s_hs, s_vs, s_ls, s_fs, s_le, s_fe;
-rk86_video_stream stream(.pix_ce(pix_ce), .pix(pix), .hrtc(hrtc), .vrtc(vrtc), .h_cnt(h_cnt), .v_cnt(v_cnt),
-    .ce(s_ce), .de(s_de), .dot(s_dot), .hs(s_hs), .vs(s_vs),
-    .line_start(s_ls), .frame_start(s_fs), .line_end(s_le), .frame_end(s_fe));
+wire s_ce, s_dot, s_fs;
+pocket_raster raster(.clk(clk), .pix_ce(pix_ce), .pix(pix), .hrtc(hrtc), .vrtc(vrtc),
+    .ce(s_ce), .dot(s_dot), .h_cnt(h_cnt), .v_cnt(v_cnt), .frame_start(s_fs));
 pocket_window window(.clk(clk), .s_ce(s_ce), .s_dot(s_dot), .s_frame_start(s_fs), .h_cnt(h_cnt), .v_cnt(v_cnt),
     .valid(pixel_valid), .data(pixel_data), .start(pixel_start), .finish(pixel_end), .address(pixel_address));
 always @(posedge clk)
     if (s_ce && s_fs) native_frames <= native_frames + 32'd1;
 
-//--------- the beeper: the Karabas BEEPER source pc0 ^ inte, registered (spec 3) --------------
+//--------- the beeper: INTE only, registered, as on the Радио 1986 board (D9.1) and Kiselev 1.4 (U16C);
+// was pc0 ^ inte, the replica's choice (spec 4.5). pc0 is the tape output, unused on the Pocket.
 reg beeper_level = 1'b0;
 always @(posedge clk)
-    beeper_level <= reset ? 1'b0 : sound_on && (pc0 ^ inte);
+    beeper_level <= reset ? 1'b0 : sound_on && inte;
 assign beeper = beeper_level;
 endmodule
 `default_nettype wire

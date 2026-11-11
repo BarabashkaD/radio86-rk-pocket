@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.8.1 (2026-11-11)
+
+The final review's fixes on top of 0.8.0 (fork `rk86-16mhz` d995355).
+
+- 8275: no DMA request after an underrun (a burst space ending at the underrun no longer raises DRQ).
+- DMA reads decoded on the system address, as on the board; the ROM disk 8255 takes A1, A0 from the system address.
+- Tests: a fault is caught only by its first ERROR line; the 8255 reset mid-run; the A000-BFFF read path; `cpu16` DMA from the ROM; `keytap` (new); `tb_system` limits from measured 16 MHz frames; `system_k1_panel` independent of the machine; CI limits and jobs for the slower machine.
+- `cpu16`: phase 7 counted from the write of its result (the RAM starts at 00, so the row 0 check of phase 6 never armed).
+- Fork runner: the fault `dma_rom_from_ram` is caught anywhere in the output (its patch also trips the start-up check first).
+- The 8257 SI state of the data sheet kept as a patch (`src/rtl/rk86_16/alt/vt57_si_state.patch`), not merged.
+
+## 0.8.0 (not released on its own; in 0.8.1)
+
+Run on a Pocket by the maintainer (2026-11-11), Tetris included.
+
+- Machine: `rk86_machine16` from the fork's `src/rtl/rk86_16/` (branch `rk86-16mhz`), the original's 16 MHz timing, each chip to its data sheet: `ce16` on 64 of 297 `clk_74a` ticks; CPU 1.778 MHz (Vslav's 8080 model); 8257 on Φ2; 8 MHz dots; 50 Hz frames; one DMA HOLD period per character. `rk86_machine` left the Pocket build.
+- Memory: one port at `bus_a` (CPU, or DMA while AEN); no wait states.
+- DMA reads are decoded like CPU reads, as on the board: the 8275 receives the byte of whatever is at the 8257's address (RAM, an 8255, the 8275, the monitor ROM).
+- ROM disk: the A000-BFFF block (second 8255) is the fork's full 8255 model with Kiselev's ROM disk wiring; its A1, A0 come from the system address, also during DMA.
+- Video: `pocket_raster` (new) locks to HRTC and VRTC; display window `X0` = 42, one native line per display line; about 25 picture updates per second.
+- Sound: INTE only (was `pc0 ^ inte`).
+- Start-up mapping of the Радио 1986 board: the monitor at every address until the first read with A15 = 1.
+- Tests: the fork's per-chip testbenches and `machine16`; `cpu16`, `raster`; `run_core_machine.py` on `machine16`; cursor-masked frame compare; `tetris` skipped unless named; remote runs with `scripts/docker2tests/remote_sim.py`.
+- Licences and credits: Vslav's 8080 model (CC-BY 3.0), the 8257 and 8275 models, the new fork files.
+
 ## 0.7.1 (2026-11-09)
 
 Run on a Pocket by the maintainer (2026-11-09), with the game disks. The RTL is that of 0.7.0.
