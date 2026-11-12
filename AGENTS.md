@@ -119,7 +119,7 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 | `romdisk/asm8080.py` | two-pass 8080 assembler (Kiselev's syntax) |
 | `romdisk/rom_loader_games.asm`, `romdisk/loader.py` | games menu loader (GPL-3.0; keys 0-9, A-Y; Z clears RAM), `games_loader()` |
 | `romdisk/emu8080.py` | small 8080 emulator with monitor stubs, for the tests |
-| `romdisk/build_romdisks.py` | the 5 game disks (64 KB) into `build/romdisks` (`--pk`, `--out`); `build()`, `metadata()` used by `package.py` |
+| `romdisk/build_romdisks.py` | the 5 game disks (64 KB) into `build/romdisks` (`--pk`, `--out`); `build()`, `metadata()` used by `package.py`; `--readme` prints the README's game list |
 | `package.py` | SD package and zip; openFPGA field and interact limits; bit-reversed RBF; icon and platform image; game disks, `romdisks.txt`, games in `info.txt`; library zip check |
 | `k1/layout.py` | single source of the K1 table, labels, navigation, model `render_panel` |
 | `k1/gen_verilog.py` | writes `pocket_k1_layout.vh` (`--out PATH`) |
@@ -133,7 +133,7 @@ openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Po
 | `tests/test_check_repo.py` | `check_repo.py`; fails while a fixed file is still in `LEGACY` |
 | `tests/test_core_machine_subset.py` | `run_core_machine.py` matches the pinned fork runner |
 | `tests/test_frame_compare.py` | the cursor mask of `frame_compare.py` |
-| `tests/test_romdisk.py` | assembler (Kiselev's loader byte-exact), games loader, every key of every disk; needs `fetch_assets.py` |
+| `tests/test_romdisk.py` | assembler (Kiselev's loader byte-exact), games loader, every key of every disk, the README's game list current; needs `fetch_assets.py` |
 
 ### `package/`
 
@@ -284,7 +284,7 @@ Unzip the package onto the SD card root; the core appears as "Radio-86RK". Upgra
 
 ## 8. Limits and known issues
 
-- Hardware: 0.8.0 run on a Pocket by the maintainer (2026-11-11), Tetris included; 0.6.1-0.7.1 on OS 2.7. Nothing else is hardware-verified.
+- Hardware: 0.8.2 run on a Pocket by the maintainer (2026-11-12), the 64 KB game disks included; 0.8.0 (2026-11-11), Tetris included; 0.6.1-0.7.1 on OS 2.7. Nothing else is hardware-verified.
 - Not limits (the original's design, reproduced; do not list them here): the fixed address map (one device per 8 KB block, registers repeating) and the 8257 wiring (channel 2 only, memory to the 8275 only, MEMR not connected).
 - No savestates, no sleep, no tape (`tape_in` high; slot 3 reserved), Dock USB keyboard unused. Interact 0x11C-0x144 reserved.
 - Programs are expected to run slower than in MAME or Emu80 (one HOLD period per character, as the data sheets give it); no real-chip measurement is known.

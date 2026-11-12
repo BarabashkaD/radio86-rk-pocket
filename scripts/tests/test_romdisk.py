@@ -187,6 +187,18 @@ class Build(unittest.TestCase):
         xonix1 = next(e for e in disks[1]['entries'] if e['file'] == 'XONIX1.RKR')
         self.assertGreaterEqual(xonix1['rom'], 0x8000)
 
+    def test_readme_game_list_is_current(self):
+        if not os.path.isdir(PK):
+            self.skipTest('core submodule not checked out')
+        meta = build_romdisks.metadata(build_romdisks.build(PK), build_romdisks.descriptions(PK))
+        with open(os.path.join(ROOT, 'README.md'), encoding='utf-8') as f:
+            text = f.read()
+        begin, end = text.find(build_romdisks.README_BEGIN), text.find(build_romdisks.README_END)
+        self.assertTrue(0 <= begin < end, 'README.md: game-disk markers missing')
+        section = text[begin + len(build_romdisks.README_BEGIN):end].strip('\n')
+        self.assertEqual(section, build_romdisks.readme_list(meta),
+                         'README.md game list is stale: python -B scripts/romdisk/build_romdisks.py --readme')
+
 
 if __name__ == '__main__':
     unittest.main()

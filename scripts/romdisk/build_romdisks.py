@@ -1,8 +1,9 @@
 """Builds the 48 Karabas game tape images into 5 ROM disks of 65536 bytes (the 64 KB wiring).
 
-Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR]
-  --pk   directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
-  --out  output directory (default build/romdisks)
+Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR] [--readme]
+  --pk      directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
+  --out     output directory (default build/romdisks)
+  --readme  print the README's game list (the lines between its game-disk markers) and stop
 
 Writes romdisk-<n>.bin (n = 1..5), romdisks.json (with each game's title from the pk
 directory's DESCRIPT.ION, or '') and romdisks.txt.
@@ -144,6 +145,22 @@ def metadata(disks, desc):
             for d in disks]
 
 
+README_BEGIN = '<!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->'
+README_END = '<!-- end of game disks -->'
+
+
+def readme_list(meta):
+    """The README's game list: a table per disk, one game per row (menu key, name, title)."""
+    parts = []
+    for m in meta:
+        rows = ['**`%s`** (%d games)' % (m['file'], len(m['entries'])), '',
+                '| Key | Game | Title |', '|---|---|---|']
+        rows += ['| %s | %s | %s |' % (e['key'], e['name'], (e['title'] or '').replace('|', '/'))
+                 for e in m['entries']]
+        parts.append('\n'.join(rows))
+    return '\n\n'.join(parts)
+
+
 def write_text(path, text):
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(text)
@@ -154,9 +171,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--pk', default=os.path.join(root, 'cores', 'karabas-go-core-rk86', 'pk'))
     ap.add_argument('--out', default=os.path.join(root, 'build', 'romdisks'))
+    ap.add_argument('--readme', action='store_true')
     args = ap.parse_args()
     disks = build(args.pk)
     desc = descriptions(args.pk)
+    if args.readme:
+        sys.stdout.reconfigure(encoding='utf-8')
+        print(readme_list(metadata(disks, desc)))
+        return
     os.makedirs(args.out, exist_ok=True)
     listing, meta = [], metadata(disks, desc)
     for d, m in zip(disks, meta):
