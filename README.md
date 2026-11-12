@@ -11,7 +11,7 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 ## Status
 
 - Latest release: [0.8.2](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.8.2). Changes: [CHANGELOG.md](CHANGELOG.md).
-- 0.8.2: ROM disk images up to 64 KB, five 64 KB game disks. 0.8.1: the original's 16 MHz timing; 0.8.0 run on a Pocket by the maintainer (2026-11-11), Tetris included.
+- 0.8.2: ROM disk images up to 64 KB, five 64 KB game disks; run on a Pocket by the maintainer (2026-11-12). 0.8.1: the original's 16 MHz timing; 0.8.0 run on a Pocket by the maintainer (2026-11-11), Tetris included.
 
 ## Features
 
@@ -48,7 +48,82 @@ The ROM disk is a memory on the ports of the second 8255 (the A000-BFFF block). 
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `romdisks.txt` and the core's info list the games.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `romdisks.txt` and the core's info list the games too.
+
+<!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->
+**`romdisk-1.bin`** (9 games)
+
+| Key | Game | Title |
+|---|---|---|
+| 0 | CHERV | Червяк |
+| 1 | CHESS | Шахматы |
+| 2 | KROK | Крок |
+| 3 | SKACHKI | Еще одни скачки |
+| 4 | SKVOTCH | Сквош |
+| 5 | SOS1 | SOS - 1 вариант |
+| 6 | SOS2 | SOS - 2 вариант |
+| 7 | TENNIS | Еще один теннис |
+| 8 | UDAW | Удав |
+
+**`romdisk-2.bin`** (10 games)
+
+| Key | Game | Title |
+|---|---|---|
+| 0 | KRESTNO.GAM | Крестики-нолики |
+| 1 | KRESTNO.RKR | Крестики-нолики |
+| 2 | MAZE | Maze |
+| 3 | PACMAN1 | Еще один пакман |
+| 4 | PAKET2 | Пакет из 4 игр |
+| 5 | PITON | Питон |
+| 6 | TETRIS1 | Тетрис - 1 вариант |
+| 7 | UTKA | Утка |
+| 8 | VOLCANO | Вулкан |
+| 9 | XONIX1 | Ксоникс-микрон |
+
+**`romdisk-3.bin`** (10 games)
+
+| Key | Game | Title |
+|---|---|---|
+| 0 | DIVERSE | Диверсант |
+| 1 | LABYRINT | Лабиринт |
+| 2 | LEST | Лестница |
+| 3 | PACMAN | Еще один pacman |
+| 4 | PINGPONG | Еще один пинг-понг |
+| 5 | PVO | ПВО-87 |
+| 6 | SLAMS | Slams |
+| 7 | SPITON | Super Piton (говорящий !) |
+| 8 | STRANGER | Strangers |
+| 9 | TOCHKI | "Жизнь" с разнотипными точками |
+
+**`romdisk-4.bin`** (9 games)
+
+| Key | Game | Title |
+|---|---|---|
+| 0 | BOMBER | Бомбардировщик |
+| 1 | CIRCUS | Цирк |
+| 2 | GFIRE | Cross Fire |
+| 3 | GLASS1 | Стакан - 1 вариант |
+| 4 | GLASS2 | Стакан - 2 вариант |
+| 5 | PAKET | Пакет из 6 игр |
+| 6 | XONIX | Ксоникс |
+| 7 | XONIXZM | Пакет из 2 игр (xonix, змея) |
+| 8 | ZMEI | Змей-горыныч |
+
+**`romdisk-5.bin`** (10 games)
+
+| Key | Game | Title |
+|---|---|---|
+| 0 | LESTN1 | Лестница-1 |
+| 1 | LORUNNER | Lode Runner |
+| 2 | PACMAN | Еще один пакман (колобок) |
+| 3 | PUSHER | Pusher |
+| 4 | RIKOSHET | Рикошет |
+| 5 | SDEMISE | Spy's demise |
+| 6 | TAPPER | Barmen |
+| 7 | TETR2 | Еще один тетрис |
+| 8 | TETRIS4 | Тетрис - 4 вариант |
+| 9 | ZAGIB | Загибон |
+<!-- end of game disks -->
 
 - Load a disk from the core's menu, or copy it as `romdisk.bin`.
 - `R0,1FF,0`, `G0`: keys `0`-`9`, then `A`-`Y`; `Z` clears 0000-73FF. Another game: Reset, then `R0,1FF,0`, `G0`, or `G7416` if the loader at 7400-75FF is intact.
