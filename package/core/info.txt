@@ -7,7 +7,7 @@ Radio-86RK for Analogue Pocket: the original's 16 MHz timing, CPU 1.778 MHz, 50 
 * Keys on D-pad: A Space, B CR, X BS, Y Y. Keys on A B X Y: X Up, B Down, Y Left, A Right; D-pad Right Space, Down CR, Up BS, Left Y.
 * Escape: the chosen button (Select or Start) sends ESC, the other sends CR; None: both send CR.
 * Core Settings: Reset keeps memory, Cold boot clears it; Sound; Text colour.
-* ROM disk: type R0,1FF,0 then CR, then G0 then CR for its menu. Without an image the ROM disk reads FF and there is no menu.
+* ROM disk: type R0,1FF,0 then CR, then G0 then CR for its menu. Without an image the ROM disk reads FF, there is no menu and the machine is expected to hang: use Core Settings > Reset.
 * Kiselev's ROM disk (romdisk.bin): items 3 (DP/DDT) and 4 (Xonix) overwrite the menu loader, as on the real machine; use Reset.
 * A ROM disk image (.bin, up to 8 MB) is loaded at start as romdisk.bin, or from the core's menu; the machine restarts, memory kept. Images above 64 KB are a bank card (128 banks of 64 KB) with its own menu at R0,1FF,0 and G0.
 * ROM disk images are separate downloads on the release page; see ROMDISKS.txt in the Assets folder.

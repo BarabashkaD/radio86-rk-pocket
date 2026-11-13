@@ -96,7 +96,24 @@ def missing_hint(path):
     return 'no such file'
 
 
-def main():
+def build(disks, files, names=None, title=DEFAULT_TITLE):
+    """The card image and its card.json dict for the disks (bytes, bank 1, 2, ... in this order),
+    their file names (for card.json and the default names) and menu names (default_name of each
+    file when None). ValueError when the counts differ or a disk, a name or the title does not fit."""
+    if names is None:
+        names = [default_name(f) for f in files]
+    if not len(disks) == len(files) == len(names):
+        raise ValueError('%d disks, %d file names, %d menu names' % (len(disks), len(files), len(names)))
+    menu, symbols = assemble_menu(title, names)
+    image = card_image(menu, disks)
+    meta = {'title': title,
+            'banks': [{'bank': i + 1, 'key': loader.KEYS[i], 'name': n, 'file': os.path.basename(f),
+                       'size': len(d)} for i, (n, f, d) in enumerate(zip(names, files, disks))],
+            'keywait': symbols['KEYWAIT']}
+    return image, meta
+
+
+def main(argv=None):
     root = os.path.normpath(os.path.join(HERE, '..', '..'))
     defaults = [os.path.join(root, 'build', 'assets', 'romdisk.bin')]
     defaults += [os.path.join(root, 'build', 'romdisks', 'romdisk-%d.bin' % n) for n in range(1, 6)]
@@ -105,11 +122,10 @@ def main():
     ap.add_argument('--title', default=DEFAULT_TITLE)
     ap.add_argument('--name', action='append', default=None)
     ap.add_argument('disks', nargs='*')
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     paths = args.disks or defaults
-    names = args.name if args.name is not None else [default_name(p) for p in paths]
-    if len(names) != len(paths):
-        print('error: %d --name for %d disks' % (len(names), len(paths)), file=sys.stderr)
+    if args.name is not None and len(args.name) != len(paths):
+        print('error: %d --name for %d disks' % (len(args.name), len(paths)), file=sys.stderr)
         sys.exit(1)
     disks = []
     for p in paths:
@@ -119,15 +135,10 @@ def main():
         with open(p, 'rb') as f:
             disks.append(f.read())
     try:
-        menu, symbols = assemble_menu(args.title, names)
-        image = card_image(menu, disks)
+        image, meta = build(disks, paths, args.name, args.title)
     except ValueError as e:
         print('error: %s' % e, file=sys.stderr)
         sys.exit(1)
-    meta = {'title': args.title,
-            'banks': [{'bank': i + 1, 'key': loader.KEYS[i], 'name': n, 'file': os.path.basename(p),
-                       'size': len(d)} for i, (n, p, d) in enumerate(zip(names, paths, disks))],
-            'keywait': symbols['KEYWAIT']}
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, 'card.bin'), 'wb') as f:
         f.write(image)

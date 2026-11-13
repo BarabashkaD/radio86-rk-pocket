@@ -7,6 +7,8 @@ Usage: python -B scripts/package.py --version 0.5.0 --date YYYY-MM-DD [--build b
 Checks the definitions against the openFPGA limits, bit-reverses the RBF (round trip checked),
 checks every shipped asset against package/assets.json, draws the icon and platform image,
 writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip, then checks the zip as the openFPGA library's updater reads it.
+The zip is reproducible: the same inputs give the same bytes (write_zip: sorted entries dated
+--date, fixed attributes; with the same zlib, as the deflate output may differ between zlib builds).
 The package holds no ROM disk image: the assets.json entries marked "package": false (Kiselev's
 romdisk.bin and its licence) are fetched and tested, never packaged; the game disks and the card
 images are separate downloads on the release page. The Assets folder gets monitor.bin, font.bin
@@ -49,8 +51,12 @@ ICON = (36, 36, 'RK', 2)                     # width, height, text, glyph scale
 BANNER = (521, 165, 'RADIO-86RK', 7)         # the platform image
 
 
+REVERSED = bytes(int('{:08b}'.format(b)[::-1], 2) for b in range(256))
+
+
 def reverse_bits(data):
-    return bytes(int('{:08b}'.format(b)[::-1], 2) for b in data)
+    """Each byte with its bit order reversed (the Pocket's bitstream.rbf_r); its own inverse."""
+    return bytes(data).translate(REVERSED)
 
 
 BACKGROUND = (24, 112)           # the background's grey at the top and at the bottom row
@@ -154,8 +160,13 @@ def check_updaters(updaters):
     return []
 
 
+def load_json(path):
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
 def check_definitions(package_dir):
-    load = lambda *p: json.load(open(os.path.join(package_dir, *p), encoding='utf-8'))
+    load = lambda *p: load_json(os.path.join(package_dir, *p))
     errors = check_core(load('core', 'core.json'))
     for slot in load('core', 'data.json')['data']['data_slots']:
         if len(slot['name']) > 15 or len(slot['filename']) > 31 or len(slot['extensions']) > 4 or any(len(e) > 7 for e in slot['extensions']):
@@ -252,9 +263,9 @@ KISELEV_PAGE = 'https://github.com/skiselev/radio-86rk/blob/%s/Software/rom_disk
 
 def kiselev_romdisk():
     """romdisk.bin of package/assets.json (Kiselev's file, not in the package): its download URL,
-    its page at the same commit, size and SHA256, for ROMDISKS.txt and the README."""
-    with open(os.path.join(ROOT, 'package', 'assets.json'), encoding='utf-8') as f:
-        asset = next(a for a in json.load(f)['assets'] if a['name'] == 'romdisk.bin')
+    its page at the same commit, size and SHA256, for ROMDISKS.txt, the README and the release notes."""
+    asset = next(a for a in load_json(os.path.join(ROOT, 'package', 'assets.json'))['assets']
+                 if a['name'] == 'romdisk.bin')
     m = KISELEV_RAW.fullmatch(asset['source'])
     if not m:
         raise ValueError('package/assets.json: romdisk.bin source is not a pinned raw URL of skiselev/radio-86rk')
@@ -262,12 +273,22 @@ def kiselev_romdisk():
             '@ROMDISK_SIZE@': str(asset['size']), '@ROMDISK_SHA256@': asset['sha256']}
 
 
-def fill_romdisks(template, games):
-    """The ROMDISKS.txt template (Markdown-like) with Kiselev's file from assets.json and its
-    marker line replaced by games."""
+def repo_url():
+    """The repository's https URL, core.json metadata.url."""
+    return load_json(os.path.join(ROOT, 'package', 'core', 'core.json'))['core']['metadata']['url']
+
+
+def release_url(version=None):
+    """The release page of a version (tag v<version>), or the list of releases."""
+    return repo_url() + ('/releases/tag/v' + version if version else '/releases')
+
+
+def fill_romdisks(template, games, version=None):
+    """The ROMDISKS.txt template (Markdown-like) with Kiselev's file from assets.json, the release
+    URL (of the version, else the list of releases) and its marker line replaced by games."""
     if template.count(GUIDE_MARKER) != 1 or GUIDE_MARKER + '\n' not in template:
         raise ValueError('package/ROMDISKS.txt needs exactly one %s line' % GUIDE_MARKER)
-    for key, value in kiselev_romdisk().items():
+    for key, value in dict(kiselev_romdisk(), **{'@RELEASE_URL@': release_url(version)}).items():
         template = template.replace(key, value)
     left = re.findall(r'@[A-Z0-9_]+@', template.replace(GUIDE_MARKER, ''))
     if left:
@@ -275,11 +296,11 @@ def fill_romdisks(template, games):
     return template.replace(GUIDE_MARKER, games)
 
 
-def romdisks_text(template, disks):
+def romdisks_text(template, disks, version):
     """ROMDISKS.txt of the Assets folder, plain text (UTF-8, the game titles in Russian): the
-    template without its Markdown (backticks dropped, '## ' and '### ' headings underlined) and
-    its marker line replaced by the games of the game disks (the romdisks.json list of
-    build_romdisks.py)."""
+    template without its Markdown (backticks dropped, '## ' and '### ' headings underlined), the
+    release page of this version and its marker line replaced by the games of the game disks (the
+    romdisks.json list of build_romdisks.py)."""
     lines = []
     for line in template.replace('`', '').split('\n'):
         for prefix, rule in (('### ', '-'), ('## ', '=')):
@@ -294,13 +315,13 @@ def romdisks_text(template, disks):
         for e in d['entries']:
             title = e.get('title', '')
             listing.append(('  %s  %-12s %s' % (e['key'], e['name'], title)).rstrip())
-    return fill_romdisks('\n'.join(lines), '\n'.join(listing))
+    return fill_romdisks('\n'.join(lines), '\n'.join(listing), version)
 
 
 def readme_section():
     """README's "ROM disk images" section (between README_BEGIN and README_END): the same
-    template as ROMDISKS.txt in its Markdown form; the games point to README's game-disk lists
-    (build_romdisks.py --readme)."""
+    template as ROMDISKS.txt in its Markdown form, the list of releases; the games point to
+    README's game-disk lists (build_romdisks.py --readme)."""
     with open(ROMDISKS_TEMPLATE, encoding='utf-8') as f:
         return fill_romdisks(f.read(), README_GAMES).strip('\n')
 
@@ -351,6 +372,30 @@ def asset_bytes(asset, assets_dir):
     return data
 
 
+ZIP_ATTR = 0o100644 << 16          # a regular file, rw-r--r--, as a Unix zip tool writes it
+
+
+def write_zip(zip_path, sd, date):
+    """The zip of the folder sd, the same bytes for the same files: entries in sorted path order,
+    each dated date (YYYY-MM-DD) 00:00:00, made on Unix with ZIP_ATTR, deflated. Returns the first
+    path outside Cores/, Assets/, Platforms/ (nothing written for it), else None."""
+    paths = []
+    for base, _, files in os.walk(sd):
+        paths += [os.path.relpath(os.path.join(base, n), sd).replace(os.sep, '/') for n in files]
+    stamp = tuple(int(x) for x in date.split('-')) + (0, 0, 0)
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for rel in sorted(paths):
+            if rel.split('/')[0] not in ('Cores', 'Assets', 'Platforms'):
+                return rel
+            info = zipfile.ZipInfo(rel, date_time=stamp)
+            info.create_system = 3
+            info.external_attr = ZIP_ATTR
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(os.path.join(sd, *rel.split('/')), 'rb') as f:
+                z.writestr(info, f.read())
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--version')
@@ -380,7 +425,7 @@ def main(argv=None):
         os.makedirs(d)
     for name in ('data', 'video', 'audio', 'input', 'interact', 'variants', 'updaters'):
         shutil.copyfile(os.path.join(pkg, 'core', name + '.json'), os.path.join(core_dir, name + '.json'))
-    core = json.load(open(os.path.join(pkg, 'core', 'core.json'), encoding='utf-8'))
+    core = load_json(os.path.join(pkg, 'core', 'core.json'))
     core['core']['metadata'].update(version=a.version, date_release=a.date)
     if check_core(core):
         print('ERROR: %s' % check_core(core))
@@ -388,46 +433,40 @@ def main(argv=None):
     with open(os.path.join(core_dir, 'core.json'), 'w', encoding='utf-8', newline='\n') as f:
         json.dump(core, f, indent=2)
         f.write('\n')
-    raw = open(os.path.join(a.build, 'output_files', 'ap_core.rbf'), 'rb').read()
+    with open(os.path.join(a.build, 'output_files', 'ap_core.rbf'), 'rb') as f:
+        raw = f.read()
     rev = reverse_bits(raw)
     if reverse_bits(rev) != raw:
         print('ERROR: bit reversal round trip')
         return 1
-    open(os.path.join(core_dir, 'bitstream.rbf_r'), 'wb').write(rev)
-    open(os.path.join(core_dir, 'icon.bin'), 'wb').write(graphic(*ICON))
-    open(os.path.join(sd, 'Platforms', '_images', PLATFORM + '.bin'), 'wb').write(graphic(*BANNER))
+    for path, data in ((os.path.join(core_dir, 'bitstream.rbf_r'), rev),
+                       (os.path.join(core_dir, 'icon.bin'), graphic(*ICON)),
+                       (os.path.join(sd, 'Platforms', '_images', PLATFORM + '.bin'), graphic(*BANNER))):
+        with open(path, 'wb') as f:
+            f.write(data)
     shutil.copyfile(os.path.join(pkg, 'platform', PLATFORM + '.json'), os.path.join(sd, 'Platforms', PLATFORM + '.json'))
-    table = json.load(open(os.path.join(pkg, 'assets.json'), encoding='utf-8'))
+    table = load_json(os.path.join(pkg, 'assets.json'))
     for asset in table['assets']:
         if asset.get('package', True):          # "package": false: fetched and tested, never packaged
-            open(os.path.join(asset_dir, asset['name']), 'wb').write(asset_bytes(asset, a.assets))
+            with open(os.path.join(asset_dir, asset['name']), 'wb') as f:
+                f.write(asset_bytes(asset, a.assets))
     disks, _ = game_disks(PK_DIR, {x['name'] for x in table['assets']})   # their game lists only
     with open(os.path.join(pkg, 'core', 'info.txt'), encoding='utf-8') as f:
         info = info_with_games(f.read(), disks)
     with open(os.path.join(core_dir, 'info.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(info)
     with open(ROMDISKS_TEMPLATE, encoding='utf-8') as f:
-        guide = romdisks_text(f.read(), disks)
+        guide = romdisks_text(f.read(), disks, a.version)
     with open(os.path.join(asset_dir, 'ROMDISKS.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(guide)
     shutil.copyfile(os.path.join(ROOT, 'LICENSE'), os.path.join(core_dir, 'LICENSE.txt'))
     shutil.copyfile(os.path.join(CORE_SRC, 'LICENSE.TXT'), os.path.join(core_dir, 'LICENSE-karabas-core.txt'))
-    apf = open(os.path.join(ROOT, 'fpga', 'apf', 'apf_top.v'), encoding='utf-8', errors='replace').read()
+    with open(os.path.join(ROOT, 'fpga', 'apf', 'apf_top.v'), encoding='utf-8', errors='replace') as f:
+        apf = f.read()
     with open(os.path.join(core_dir, 'APF-NOTICE.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(apf[:apf.index('module apf_top')])
     zip_path = os.path.join(a.output, '%s_%s_%s.zip' % (CORE_ID, a.version, a.date))
-    outside = None
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as z:
-        for base, _, files in os.walk(sd):
-            for name in sorted(files):
-                full = os.path.join(base, name)
-                rel = os.path.relpath(full, sd).replace(os.sep, '/')
-                if rel.split('/')[0] not in ('Cores', 'Assets', 'Platforms'):
-                    outside = rel
-                    break
-                z.write(full, rel)
-            if outside:
-                break
+    outside = write_zip(zip_path, sd, a.date)
     if outside:
         print('ERROR: %s outside Cores/Assets/Platforms' % outside)
         os.remove(zip_path)
@@ -444,7 +483,8 @@ def main(argv=None):
         shown = '..'
     if shown.startswith('..'):                  # outside the repository: the name only, no local path
         shown = os.path.basename(zip_path)
-    print('PASS package: %s (%s)' % (shown, hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()))
+    with open(zip_path, 'rb') as f:
+        print('PASS package: %s (%s)' % (shown, hashlib.sha256(f.read()).hexdigest()))
     return 0
 
 
