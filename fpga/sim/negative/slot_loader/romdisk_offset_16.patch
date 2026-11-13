@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_slot_loader.v b/fpga/rtl/pocket_slot_loader.v
+index 5149535..fb486a0 100644
+--- a/fpga/rtl/pocket_slot_loader.v
++++ b/fpga/rtl/pocket_slot_loader.v
+@@ -81,7 +81,7 @@ always @(posedge clk or negedge reset_n)
+         romdisk_wr <= 1'b0; romdisk_word <= 21'd0; romdisk_data <= 32'd0;
+     end else begin
+         romdisk_wr <= take && hit == ROMDISK && {bridge_address[22:2], 2'b00} < limit_c;
+-        if (take && hit == ROMDISK) begin romdisk_word <= bridge_address[22:2]; romdisk_data <= bridge_data; end
++        if (take && hit == ROMDISK) begin romdisk_word <= {5'd0, bridge_address[17:2]}; romdisk_data <= bridge_data; end
+     end
+ 
+ // the monitor and the font: a bridge word into 4 byte writes, first byte first

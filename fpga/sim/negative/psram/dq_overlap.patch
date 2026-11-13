@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..ab41701 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -150,7 +150,7 @@ always @(posedge clk)
+         end
+         // the ticks of the access in flight
+         if (step && tn == T_ADV_HIGH) cram_adv_n <= 1'b1;
+-        if (step && tn == T_DQ && kind == READ) dq_oe <= 1'b0;
++        if (step && tn == T_END && kind == READ) dq_oe <= 1'b0;
+         if (step && tn == T_DQ && kind != READ) begin dq_out <= acc_data; cram_we_n <= 1'b0; end
+         if (step && tn == T_OE && kind == READ) cram_oe_n <= 1'b0;
+         if (sample) begin word <= cram_dq; word_addr <= acc_word; valid <= !pending; end

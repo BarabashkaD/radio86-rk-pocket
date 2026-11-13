@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_cart_ppi.v b/fpga/rtl/pocket_cart_ppi.v
+index 268188e..cf1a5f3 100644
+--- a/fpga/rtl/pocket_cart_ppi.v
++++ b/fpga/rtl/pocket_cart_ppi.v
+@@ -46,7 +46,7 @@ reg pc7_q = 1'b1;                       // the PC7 pin, one clk back
+ always @(posedge clk) begin
+     pc7_q <= pc_pin[7];
+     if (card_reset) bank <= 7'd0;
+-    else if (card && pc7_q && pc_pin == 8'h7F) bank <= pb_pin[6:0];   // PC7 fell, PC0-PC6 high
++    else if (card && pc7_q && !pc_pin[7]) bank <= pb_pin[6:0];   // PC7 fell, PC0-PC6 high
+ end
+ assign rom_address = {card ? bank : 7'd0, wide & pc_pin[7], pc_pin[6:0], pb_pin};
+ wire [7:0] pa_pin = loaded ? rom_data : 8'hFF;

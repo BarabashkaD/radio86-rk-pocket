@@ -141,6 +141,13 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(updaters, {'declare_ai': ['Claude']})
         self.assertEqual(package.check_updaters(updaters), [])
 
+    def test_romdisk_slot_takes_8_mb(self):
+        with open(os.path.join(ROOT, 'package', 'core', 'data.json'), encoding='utf-8') as f:
+            slots = {s['id']: s for s in json.load(f)['data']['data_slots']}
+        self.assertEqual(slots[2]['size_maximum'], 8388608)
+        self.assertEqual(slots[2]['address'], '0x22000000')
+        self.assertEqual(slots[2]['parameters'], 75)
+
     def test_updaters_check(self):
         for bad in ({'declare_ai': []}, {'declare_ai': 'Claude'}, {'declare_ai': ['']}, {'declare_ai': [1]},
                     {'declare_ai': ['Claude'], 'license': {'filename': 'key.bin'}},

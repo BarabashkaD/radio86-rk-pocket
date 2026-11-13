@@ -1,11 +1,11 @@
 diff --git a/fpga/rtl/pocket_slot_loader.v b/fpga/rtl/pocket_slot_loader.v
-index fe5235a..34e31c9 100644
+index 5149535..9595de3 100644
 --- a/fpga/rtl/pocket_slot_loader.v
 +++ b/fpga/rtl/pocket_slot_loader.v
-@@ -83,7 +83,7 @@ assign font_we = write && target == FONT;
- assign romdisk_we = write && target == ROMDISK;
- assign byte_a = offset[15:0];
- assign romdisk_64k = limit_c > 17'd32768;
+@@ -112,7 +112,7 @@ assign byte_a = offset[15:0];
+ assign romdisk_loaded = limit_c != 24'd0;
+ assign romdisk_64k = limit_c > 24'd32768;
+ assign romdisk_card = limit_c > 24'd65536;
 -assign byte_d = word[31:24];
 +assign byte_d = word[7:0];
  

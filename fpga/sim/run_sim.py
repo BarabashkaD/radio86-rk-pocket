@@ -49,22 +49,32 @@ def core_files(prj='rk86_machine.prj', only=None):
     return files
 
 
-HEX = {  # name in the run directory: (source, accepted sizes, written size: the rest FF)
+HEX = {  # name in the run directory: (source, accepted sizes, written size: the rest FF; a larger image as it is)
     'monitor.hex': (lambda: os.path.join(CORE, 'roms', 'BIOS.BIN'), (2048,), 2048),
     'font.hex': (lambda: os.path.join(CORE, 'roms', 'FONT.BIN'), (1024,), 1024),
-    # Kiselev's ROM disk, or a 64 KB game disk (tb_system: +cart_size=65536)
-    'cartridge.hex': (lambda: os.path.join(ROOT, 'build', 'assets', 'romdisk.bin'), (32256, 65536), 65536),
+    # Kiselev's ROM disk, a 64 KB game disk (tb_system: +cart_size=65536) or the 128 KB card image of the
+    # card test (+cart_size=131072; tb_system reads 131072 entries then)
+    'cartridge.hex': (lambda: os.path.join(ROOT, 'build', 'assets', 'romdisk.bin'), (32256, 65536, 131072), 65536),
     # game: the 64 KB game disk the scenario reloads into the ROM disk slot (build_romdisks.py builds it)
     'cartridge2.hex': (lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-2.bin'), (65536,), 65536),
 }
 
 TESTS = {
     'cart_ppi': dict(top='tb_cart_ppi',
-                     files=lambda: sim('unit/tb_cart_ppi.v') + rtl('pocket_cart_ppi.v')
+                     files=lambda: sim('unit/tb_cart_ppi.v', 'memory/psram_model.v') + rtl('pocket_cart_ppi.v', 'pocket_psram.v')
                      + core_files('rk86_machine16.prj', only=('k580vv55.v',)),
-                     negatives=[('cart_pc7_ignored', 'ERROR: cart_ppi: pc7'),
-                                ('cart_wide_no_a15', 'ERROR: cart_ppi: wide reset: rom address'),
-                                ('cart_wide_pc7_off', 'ERROR: cart_ppi: wide reset: port A')]),
+                     negatives=[('cart_wide_no_a15', 'ERROR: cart_ppi: wide reset: rom address'),
+                                ('cart_wide_pc7_off', 'ERROR: cart_ppi: wide reset: port A'),
+                                ('cart_late_rom_data', 'ERROR: cart_ppi: LDA A000h'),
+                                ('cart_unloaded_not_ff', 'ERROR: cart_ppi: no image'),
+                                ('cart_no_mirror', 'ERROR: cart_ppi: mirror'),
+                                ('cart_bank_any_pc7_fall', 'ERROR: cart_ppi: card: bank changed without the event'),
+                                ('cart_bank_level', 'ERROR: cart_ppi: card: bank changed without the event'),
+                                ('cart_bank_from_ff_only', 'ERROR: cart_ppi: card: bank not loaded by the event'),
+                                ('cart_bank_pb7', 'ERROR: cart_ppi: card: rom address'),
+                                ('cart_bank_machine_reset', 'ERROR: cart_ppi: card: bank lost on the machine reset'),
+                                ('cart_card_reset_ignored', 'ERROR: cart_ppi: card: bank not cleared by the card reset'),
+                                ('cart_bank_outside_card', 'ERROR: cart_ppi: card: bank used outside the card')]),
     'audio': dict(top='tb_native_audio', files=sim('unit/tb_native_audio.v') + rtl('pocket_audio.v')),
     'bus_cdc': dict(top='tb_bus_cdc', files=sim('unit/tb_bus_cdc.v') + rtl('pocket_bus_cdc.v'),
                     negatives=[('bus_cdc/copy_without_req', 'ERROR: copied a held value')]),
@@ -79,11 +89,21 @@ TESTS = {
     'k1_panel': dict(top='tb_k1_panel', inputs=lambda out: k1_panel_inputs(out),
                      files=sim('unit/tb_k1_panel.v') + rtl('pocket_frame_video.v', 'pocket_k1_panel.v'),
                      negatives=[('k1_panel/labels_ignore_sh', 'ERROR: pixel')]),
-    'slot_loader': dict(top='tb_slot_loader', files=sim('unit/tb_slot_loader.v') + rtl('pocket_slot_loader.v', 'pocket_rom8.v'),
+    'slot_loader': dict(top='tb_slot_loader',
+                        files=sim('unit/tb_slot_loader.v', 'memory/psram_model.v') + rtl('pocket_slot_loader.v', 'pocket_rom8.v', 'pocket_psram.v'),
                         negatives=[('slot_loader/size_not_limited', 'byte beyond the size written'),
                                    ('slot_loader/lane_order', 'byte order'),
-                                   ('slot_loader/romdisk_32k_only', 'ERROR: slot 2 size 32769'),
-                                   ('slot_loader/wide_at_32k', 'romdisk_64k at 32768 bytes')]),
+                                   ('slot_loader/romdisk_64k_only', 'ERROR: slot 2 size 8388608'),
+                                   ('slot_loader/wide_at_32k', 'romdisk_64k at 32768 bytes'),
+                                   ('slot_loader/romdisk_offset_16', 'ERROR: ROM disk word')]),
+    'psram': dict(top='tb_psram', files=sim('unit/tb_psram.v', 'memory/psram_model.v') + rtl('pocket_psram.v'),
+                  negatives=[('psram/sample_early', 'ERROR: psram: read'),
+                             ('psram/sample_at_release', 'ERROR: psram: DQ changed within 1 ns after the sample'),
+                             ('psram/ce_held', 'ERROR: psram model: CE# low longer than tCEM'),
+                             ('psram/lane_swap', 'ERROR: psram: word'),
+                             ('psram/dq_overlap', 'ERROR: psram model: DQ driven by the controller while OE# low'),
+                             ('psram/second_write_dropped', 'ERROR: psram: word'),
+                             ('psram/bcr_skipped', 'ERROR: psram model: access before the BCR write')]),
     'memory': dict(top='tb_pocket_memory', files=sim('unit/tb_pocket_memory.v') + rtl('pocket_memory.v'),
                    negatives=[('write_level', 'cpu_write is not one clk'),
                               ('write_during_aen', 'RAM changed during aen'),
@@ -119,7 +139,7 @@ TESTS = {
 SYSTEM_RTL = rtl('pocket_slot_loader.v', 'pocket_rom8.v', 'pocket_interact.v', 'pocket_memory.v',
                  'pocket_cold_clear.v', 'pocket_raster.v', 'pocket_window.v', 'pocket_remap.v', 'pocket_keyboard.v',
                  'pocket_bus_cdc.v', 'pocket_cart_ppi.v', 'pocket_frame_video.v', 'pocket_k1_panel.v', 'pocket_audio.v',
-                 'pocket_pll_watchdog.v', 'radio86rk_pocket.v', 'pocket_system.v')
+                 'pocket_pll_watchdog.v', 'pocket_psram.v', 'radio86rk_pocket.v', 'pocket_system.v')
 
 # The first h_cnt of the 408 x 300 window (pocket_window.v X0): frame_compare.py places the cursor cell
 # of cursor.txt with it. Both change together.
@@ -130,18 +150,45 @@ def system(scenario, compare=None, cart=None, extra=None, negatives=()):
     return dict(top='tb_system', slow=True, plusargs=['+scenario=' + scenario], compare=compare, cart=cart, extra=extra,
                 hex=['monitor.hex', 'font.hex', 'cartridge.hex'], negatives=list(negatives),
                 incdirs=lambda: [os.path.join(CORE, 'sim', 'machine16')],   # cpu_power_up.vh (power_up.vh)
-                files=lambda: sim('system/tb_system.v') + SYSTEM_RTL + core_files('rk86_machine16.prj'))
+                files=lambda: sim('system/tb_system.v', 'memory/psram_model.v') + SYSTEM_RTL + core_files('rk86_machine16.prj'))
+
+
+ROMDISKS_BUILD = 'python -B scripts/romdisk/build_romdisks.py'
+# the card test's image: the card menu (bank 0) and game disk 2 (bank 1), 131072 bytes
+CARD_DIR = os.path.join(ROOT, 'build', 'card-sim')
+CARD_BUILD = 'python -B scripts/romdisk/card.py --out build/card-sim build/romdisks/romdisk-2.bin'
+CARD_HINT = 'run %s, then %s' % (ROMDISKS_BUILD, CARD_BUILD)
 
 
 def game_plusargs(disk=2, file='XONIX1.RKR'):
     path = os.path.join(ROOT, 'build', 'romdisks', 'romdisks.json')
     if not os.path.exists(path):
-        raise ValueError('%s missing' % path)
+        raise ValueError('%s missing: run %s' % (path, ROMDISKS_BUILD))
     with open(path, encoding='utf-8') as f:
         e = next((e for d in json.load(f) if d['disk'] == disk for e in d['entries'] if e['file'] == file), None)
     if e is None:
-        raise ValueError('entry %s of disk %d not found in %s' % (file, disk, path))
+        raise ValueError('entry %s of disk %d not found in %s: run %s' % (file, disk, path, ROMDISKS_BUILD))
     return ['+game_key=%d' % ord(e['key']), '+game_ram=%d' % e['ram'], '+game_rom=%d' % e['rom'], '+game_len=%d' % e['length']]
+
+
+def card_image():
+    path = os.path.join(CARD_DIR, 'card.bin')
+    if not os.path.exists(path):
+        raise ValueError('%s missing: %s' % (path, CARD_HINT))
+    return path
+
+
+def card_plusargs():
+    """tb_system card: +cart_size (card.bin) and +card_keywait (card.json keywait, the card menu's key wait);
+    the TB presses key 0, so bank 1 must be key 0."""
+    path = os.path.join(CARD_DIR, 'card.json')
+    if not os.path.exists(path):
+        raise ValueError('%s missing: %s' % (path, CARD_HINT))
+    with open(path, encoding='utf-8') as f:
+        meta = json.load(f)
+    if not isinstance(meta.get('keywait'), int) or not meta.get('banks') or meta['banks'][0].get('key') != '0':
+        raise ValueError('%s: no keywait, or bank 1 not on key 0: %s' % (path, CARD_HINT))
+    return ['+cart_size=%d' % os.path.getsize(card_image()), '+card_keywait=%d' % meta['keywait']]
 
 
 TESTS.update({
@@ -157,6 +204,14 @@ TESTS.update({
                  skip='xonix captures the same menu frame first; run it by name'),
     # the ROM disk menu frame (vs rom-disk-menu.hex), then XONIX from the menu
     'xonix': system('xonix', ('frame.hex', 'fpga/sim/golden/rom-disk-menu.hex')),
+    # the 64 KB regression through the PSRAM: game disk 2 (built by scripts/romdisk/build_romdisks.py) in the
+    # ROM disk slot, the 64 KB wiring, R0,1FF,0 and G0 to its menu
+    'menu64': system('menu64', cart=lambda: os.path.join(ROOT, 'build', 'romdisks', 'romdisk-2.bin'),
+                     extra=lambda: ['+cart_size=65536']),
+    # the J6 bank card (build_romdisks.py, then card.py: CARD_BUILD): R0,1FF,0 and G0 to the card menu, key 0
+    # selects bank 1 (disk 2) and starts its loader, its menu; Core Settings Reset keeps the bank, Cold boot
+    # clears it
+    'card': system('card', cart=card_image, extra=card_plusargs),
     # local only (slow; the disks are built by scripts/romdisk/build_romdisks.py, not fetched)
     # boots with Kiselev's romdisk.bin, then reloads the ROM disk slot with disk 2 (cartridge2.hex): XONIX1
     # above 8000h (the 64 KB wiring, PC7 = ROM A15)
@@ -181,7 +236,7 @@ def write_hex(name, out, path=None):
         data = f.read()
     if len(data) not in sizes:
         raise SystemExit('ERROR: %s is %d bytes, expected %s' % (path, len(data), ' or '.join(map(str, sizes))))
-    data += b'\xff' * (written - len(data))
+    data += b'\xff' * (max(written, len(data)) - len(data))
     with open(os.path.join(out, name), 'w', encoding='ascii', newline='\n') as f:
         f.write(''.join('%02x\n' % b for b in data))
 
@@ -243,10 +298,10 @@ def run(name, test, iverilog, vvp, env, fault=None):
     try:
         cart = test['cart']() if test.get('cart') else None
         if cart and not os.path.exists(cart):
-            raise ValueError('%s missing' % cart)
+            raise ValueError('%s missing: run %s' % (cart, ROMDISKS_BUILD))
         extra = test['extra']() if test.get('extra') else []
     except ValueError as e:
-        return False, 'ERROR: %s: run python -B scripts/romdisk/build_romdisks.py' % e
+        return False, 'ERROR: %s' % e
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     files = test['files']() if callable(test['files']) else list(test['files'])

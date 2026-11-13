@@ -1,0 +1,12 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..aa855de 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -154,7 +154,6 @@ always @(posedge clk)
+         if (step && tn == T_DQ && kind != READ) begin dq_out <= acc_data; cram_we_n <= 1'b0; end
+         if (step && tn == T_OE && kind == READ) cram_oe_n <= 1'b0;
+         if (sample) begin word <= cram_dq; word_addr <= acc_word; valid <= !pending; end
+-        if (step && tn == T_END) cram_ce0_n <= 1'b1;
+         if (step && tn == T_END) begin cram_oe_n <= 1'b1; cram_we_n <= 1'b1; end
+         if (step && tn == T_END && kind == READ) begin cram_lb_n <= 1'b1; cram_ub_n <= 1'b1; end
+         if (step && tn == T_LAST) begin dq_oe <= 1'b0; cram_lb_n <= 1'b1; cram_ub_n <= 1'b1; cram_cre <= 1'b0; end

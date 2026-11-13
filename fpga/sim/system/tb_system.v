@@ -3,13 +3,19 @@
 // System testbench of the Pocket target (spec 9.4-9.7): pocket_system with the bridge and data
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
-// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|xonix|game|dpddt|tetris|keytap|k1|k1_panel
+// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|menu64|card|xonix|game|dpddt|tetris|keytap|k1|k1_panel
 // The machine is rk86_machine16 (16 MHz, 50 Hz native frames); compile with -I <core>/src/sim/machine16
 // (cpu_power_up.vh, included by power_up.vh).
+// The ROM disk is in the PSRAM: psram_model (fpga/sim/memory, AW = 16: 128 KB, FF-filled) on the cram0
+// pins of pocket_system; psram_byte(i) reads ROM disk byte i from it (the packed mapping of
+// pocket_psram). Every slot word goes at APF's rate (slot_write: one bridge word per 88 clk), and none
+// before the controller is ready (its BCR write, 151 us after the power-up reset): pocket_system holds
+// the slot requests until then, and slot and slot_write check it.
 // Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex and
 // cursor.txt (the cursor cell for frame_compare.py --cursor); +cart_size=N: the ROM disk slot size
-// (default 32256, Kiselev's image); game also reads cartridge2.hex (a 64 KB game disk) and reloads
-// the ROM disk slot with it while the core runs, as the Pocket menu does;
+// (default 32256, Kiselev's image; menu64: 65536, game disk 2; card: 131072, the card image of the card
+// menu and disk 2, with +card_keywait=N: the card menu's key wait); game also reads cartridge2.hex (a 64 KB
+// game disk) and reloads the ROM disk slot with it while the core runs, as the Pocket menu does;
 // k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
 // and k1.log (STEP lines and, per capture, "STATE <n> <panel state hex> <green> <what>", the state
 // pocket_frame_video latched for that frame; scripts/k1/check_frames.py renders the model for it).
@@ -47,18 +53,37 @@ reg [31:0] pad = {4'h1, 28'h0};
 wire ack, ok, rd_selected, memory_ready, de, hs, vs, skip, dac, lrck;
 wire [31:0] rd_data;
 wire [23:0] rgb;
+wire [21:16] cram0_a;
+wire [15:0] cram0_dq;
+wire cram0_adv_n, cram0_ce0_n, cram0_ce1_n, cram0_oe_n, cram0_we_n, cram0_ub_n, cram0_lb_n, cram0_cre, cram0_clk;
 pocket_system sys(.clk_74a(clk), .clk_core_12288(clk_av), .pll_locked(pll_locked), .pll_locked_s(lock_sync[2]),
     .pll_reset(pll_reset), .reset_n(reset_n), .bridge_wr(wr), .bridge_addr(address), .bridge_wr_data(data),
     .rd_data(rd_data), .rd_selected(rd_selected), .status_boot_done(lock_sync[2]), .status_setup_done(1'b0),
     .dataslot_requestwrite(request), .dataslot_requestwrite_id(id), .dataslot_requestwrite_size(size),
     .dataslot_requestwrite_ack(ack), .dataslot_requestwrite_ok(ok), .dataslot_allcomplete(complete),
     .cont1_key(pad), .video_rgb(rgb), .video_de(de), .video_hs(hs), .video_vs(vs), .video_skip(skip),
-    .audio_dac(dac), .audio_lrck(lrck), .memory_ready(memory_ready));
+    .audio_dac(dac), .audio_lrck(lrck), .memory_ready(memory_ready),
+    .cram0_a(cram0_a), .cram0_dq(cram0_dq), .cram0_adv_n(cram0_adv_n), .cram0_ce0_n(cram0_ce0_n),
+    .cram0_ce1_n(cram0_ce1_n), .cram0_oe_n(cram0_oe_n), .cram0_we_n(cram0_we_n), .cram0_ub_n(cram0_ub_n),
+    .cram0_lb_n(cram0_lb_n), .cram0_cre(cram0_cre), .cram0_clk(cram0_clk));
+// the PSRAM die 0 of cram0, 128 KB (AW = 16; card: banks 0 and 1): an access beyond it is an ERROR, never aliased
+psram_model #(.AW(16)) psram(.a(cram0_a), .dq(cram0_dq), .adv_n(cram0_adv_n), .ce0_n(cram0_ce0_n),
+    .ce1_n(cram0_ce1_n), .oe_n(cram0_oe_n), .we_n(cram0_we_n), .ub_n(cram0_ub_n), .lb_n(cram0_lb_n),
+    .cre(cram0_cre), .clk(cram0_clk));
+// ROM disk byte i in the PSRAM: word i / 2, D7-D0 for an even i, D15-D8 for an odd one
+function [7:0] psram_byte(input integer i);
+    reg [15:0] w;
+    begin
+        w = psram.mem[i >> 1];
+        psram_byte = i[0] ? w[15:8] : w[7:0];
+    end
+endfunction
 
 reg [7:0] monitor [0:2047];
 reg [7:0] font [0:1023];
-reg [7:0] cart [0:65535];            // cartridge.hex: the image, FF-padded to 64 KB (run_sim.py)
+reg [7:0] cart [0:131071];           // cartridge.hex: the image, FF-padded to 64 KB, or the 128 KB card image (run_sim.py)
 integer cart_size;                      // +cart_size: the ROM disk slot size (default Kiselev's 32256)
+integer card_keywait;                   // card: +card_keywait, the card menu's key wait (card.json keywait)
 reg [7:0] cart2 [0:65535];           // game: cartridge2.hex, the 64 KB game disk loaded by the reload
 integer cart2_size = 65536;
 reg frame [0:122399];
@@ -194,31 +219,44 @@ endtask
 task bridge_write(input [31:0] a, input [31:0] d);
     begin @(negedge clk); address = a; data = d; wr = 1'b1; @(negedge clk); wr = 1'b0; repeat (4) @(negedge clk); end
 endtask
+// A slot request as core_bridge_cmd makes it: held until the ack. The first one after the power-up
+// waits there for the PSRAM controller (pocket_system holds the requests until psram_ready, about
+// 11 200 clk): an ack before ready is an ERROR.
 task slot(input [15:0] slot_id, input [31:0] bytes);
     begin
         @(negedge clk); id = slot_id; size = bytes; request = 1'b1; guard = 0;
         while (!ack && guard < 20000) begin @(negedge clk); guard = guard + 1; end
         if (!ack || !ok) fail("slot refused");
+        if (!sys.psram_ready) fail("a slot request taken before the PSRAM controller is ready");
         request = 1'b0; repeat (3) @(negedge clk);
+    end
+endtask
+// a slot word at APF's rate (at most one bridge word per 88 clk, fpga/apf/io_bridge_peripheral.v):
+// bridge_write (6 clk) and 82 clk idle; pocket_psram buffers one ROM disk word and writes it in 26 clk
+task slot_write(input [31:0] a, input [31:0] d);
+    begin
+        if (!sys.psram_ready) fail("a slot word before the PSRAM controller is ready");
+        bridge_write(a, d); repeat (82) @(negedge clk);
     end
 endtask
 task load(input with_cart);
     begin
         repeat (20) @(negedge clk);              // the power-up reset of the slot loader
-        slot(0, 2048);
-        for (i = 0; i < 512; i = i + 1) bridge_write(32'h2000_0000 + 4*i, {monitor[4*i], monitor[4*i+1], monitor[4*i+2], monitor[4*i+3]});
+        slot(0, 2048);                           // waits for psram_ready (pocket_system)
+        $display("INFO: PSRAM controller ready, first slot request taken at %0t ps", $time);
+        for (i = 0; i < 512; i = i + 1) slot_write(32'h2000_0000 + 4*i, {monitor[4*i], monitor[4*i+1], monitor[4*i+2], monitor[4*i+3]});
         slot(1, 1024);
-        for (i = 0; i < 256; i = i + 1) bridge_write(32'h2100_0000 + 4*i, {font[4*i], font[4*i+1], font[4*i+2], font[4*i+3]});
+        for (i = 0; i < 256; i = i + 1) slot_write(32'h2100_0000 + 4*i, {font[4*i], font[4*i+1], font[4*i+2], font[4*i+3]});
         if (with_cart) begin
             slot(2, cart_size);
-            for (i = 0; i < cart_size / 4; i = i + 1) bridge_write(32'h2200_0000 + 4*i, {cart[4*i], cart[4*i+1], cart[4*i+2], cart[4*i+3]});
+            for (i = 0; i < cart_size / 4; i = i + 1) slot_write(32'h2200_0000 + 4*i, {cart[4*i], cart[4*i+1], cart[4*i+2], cart[4*i+3]});
         end
         complete = 1'b1; guard = 0;
         while (!sys.assets_valid && guard < 200000) begin @(negedge clk); guard = guard + 1; end
         if (!sys.assets_valid) fail("assets not valid");
         for (i = 0; i < 2048; i = i + 1) if (sys.rk86.mem.ram[32768 + i] !== monitor[i]) fail("the monitor is not in the memory at 8000");
         for (i = 0; i < 1024; i = i + 1) if (sys.rk86.font_rom.mem[i] !== font[i]) fail("the font is not loaded");
-        if (with_cart) for (i = 0; i < cart_size; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart[i]) fail("the ROM disk is not loaded");
+        if (with_cart) for (i = 0; i < cart_size; i = i + 1) if (psram_byte(i) !== cart[i]) fail("the ROM disk is not in the PSRAM");
     end
 endtask
 // a ROM disk reload from the Pocket menu (data.json slot 2, parameters 75): the core held in reset
@@ -230,8 +268,8 @@ task reload_slot2;
         @(negedge clk) reset_n = 1'b0; repeat (20) @(negedge clk);
         slot(2, cart2_size);
         for (i = 0; i < cart2_size / 4; i = i + 1)
-            bridge_write(32'h2200_0000 + 4*i, {cart2[4*i], cart2[4*i+1], cart2[4*i+2], cart2[4*i+3]});
-        for (i = 0; i < cart2_size; i = i + 1) if (sys.rk86.romdisk.mem[i] !== cart2[i]) fail("reload: the ROM disk is not the new image");
+            slot_write(32'h2200_0000 + 4*i, {cart2[4*i], cart2[4*i+1], cart2[4*i+2], cart2[4*i+3]});
+        for (i = 0; i < cart2_size; i = i + 1) if (psram_byte(i) !== cart2[i]) fail("reload: the ROM disk is not the new image");
         for (i = 0; i < 65536; i = i + 1) cart[i] = cart2[i];
         reset_n = 1'b1;
         wait_fetch(16'hFE63, FE63_FRAMES, "reload: no keyboard loop after the restart");
@@ -480,12 +518,18 @@ task boot(input with_cart, input [1:0] boot_preset);
         wait_fetch(16'hFE63, FE63_FRAMES, "no keyboard loop");
     end
 endtask
-task to_menu;
+// R0,1FF,0 (RAM 0000-01FF = image 0000-01FF), then G0
+task r_g0;
     begin
         type_char("R"); type_char("0"); type_char(","); type_char("1"); type_char("F"); type_char("F");
         type_char(","); type_char("0"); press_key(KEY_VK);
         wait_ram(0, 0, 512, copy_frames(512), "R0,1FF,0 did not copy the loader");
         type_char("G"); type_char("0"); press_key(KEY_VK);
+    end
+endtask
+task to_menu;
+    begin
+        r_g0;
         wait_fetch(16'h741C, MENU_FRAMES, "no ROM disk menu");
     end
 endtask
@@ -583,8 +627,10 @@ endtask
 initial begin
     if (!$value$plusargs("scenario=%s", scenario)) scenario = "boot";
     if (!$value$plusargs("cart_size=%d", cart_size)) cart_size = 32256;
-    if (cart_size % 4 != 0 || cart_size > 65536) fail("cart_size: a multiple of 4, at most 65536");
-    $readmemh("monitor.hex", monitor); $readmemh("font.hex", font); $readmemh("cartridge.hex", cart);
+    if (cart_size % 4 != 0 || cart_size > 131072) fail("cart_size: a multiple of 4, at most 131072");
+    $readmemh("monitor.hex", monitor); $readmemh("font.hex", font);
+    // cartridge.hex: 65536 entries, or 131072 for the card image (run_sim.py): the range as written
+    $readmemh("cartridge.hex", cart, 0, cart_size > 65536 ? 131071 : 65535);
     if (scenario == "game") $readmemh("cartridge2.hex", cart2);
     force sys.rk86.hid_cols = tb_hid_cols; force sys.rk86.hid_mods = tb_hid_mods;
     `ZERO_UP(sys.rk86.machine)
@@ -604,26 +650,33 @@ initial begin
         if (periods_ok < 2) fail("native frame period: fewer than 2 periods of 319920 ce16");
         $display("PASS %0s: assets, persisted interact values, keyboard loop at FE63, frame period, frame.hex", scenario);
     end else if (scenario == "nocart") begin
+        // no image: port A reads FF (loaded low), whatever the PSRAM holds
         boot(1'b0, 2'd0);
-        if (sys.rk86.romdisk.mem[0] !== 8'hFF || sys.rk86.romdisk.mem[32767] !== 8'hFF || sys.rk86.romdisk.mem[65535] !== 8'hFF) fail("no ROM disk: its memory is not FF");
+        if (sys.rk86.romdisk_loaded !== 1'b0) fail("nocart: romdisk_loaded with no ROM disk slot");
         // A ROM disk read as the monitor's FA68 does it (the loader's copy, R0,1FF,0): control word
         // 90h to A003, the address to A001 (low) and A002 (high), then A000. The address is the first
-        // one above 0000 where the image (cartridge.hex, not loaded here) is not FF, so the same read
-        // with the image would differ. The machine is frozen first (ce16 held low; the monitor waits
-        // in its keyboard loop and never reads A000-BFFF) and the 8255's bus ports are forced.
+        // one above 0000 where the image (cartridge.hex, not loaded) is not FF, and the PSRAM is given
+        // that byte there by hierarchy, so only loaded = 0 makes the read FF. The machine is frozen
+        // first (ce16 held low; the monitor waits in its keyboard loop and never reads A000-BFFF) and
+        // the 8255's bus ports are forced. The controller holds the word of the reset address 7FFFh, so
+        // it reads the changed word when the address is written.
         n = 1;
         while (n < 32256 && cart[n] === 8'hFF) n = n + 1;
         if (n == 32256) fail("nocart: cartridge.hex is FF after 0000");
         force sys.rk86.ce16 = 1'b0;
+        psram.mem[n >> 1] = n[0] ? {cart[n], 8'hFF} : {8'hFF, cart[n]};
         force sys.rk86.cart.rd_n = cart_rd_n; force sys.rk86.cart.wr_n = cart_wr_n;
         force sys.rk86.cart.a = cart_a; force sys.rk86.cart.d_i = cart_d;
         cart_wr(2'd3, 8'h90);
-        if (sys.rk86.cart.pc_pin[7] !== 1'b0) fail("nocart: PC7 not low after 90h (the ROM outputs off)");
+        if (sys.rk86.cart.pc_pin[7] !== 1'b0) fail("nocart: PC7 not low after 90h (mode set: port C 00)");
         cart_wr(2'd1, n[7:0]); cart_wr(2'd2, n[15:8]);
-        if (sys.rk86.cartridge_address !== n[14:0]) fail("nocart: the ROM disk address is not the written one");
+        if (sys.rk86.romdisk_address !== {8'd0, n[14:0]}) fail("nocart: the ROM disk address is not the written one");
+        guard = 0;
+        while (!sys.psram.rd_ready && guard < 100) begin @(negedge clk); guard = guard + 1; end
+        if (!sys.psram.rd_ready || sys.psram.rd_data !== cart[n]) fail("nocart: the PSRAM byte at the address is not the image byte");
         cart_rd(2'd0);
-        if (cart_v !== 8'hFF) fail("no ROM disk: a ROM disk read does not return FF");
-        $display("PASS nocart: monitor without ROM disk; after 90h and the address %h, A000 reads FF (the image has %h there)",
+        if (cart_v !== 8'hFF) fail("no image: port A does not read FF (loaded low)");
+        $display("PASS nocart: no image: port A reads FF (loaded low); after 90h and the address %h, A000 reads FF, the PSRAM holds %h there",
                  n[14:0], cart[n]);
     end else if (scenario == "reset") begin
         boot(1'b1, 2'd0);
@@ -669,6 +722,52 @@ initial begin
         wait_frames(2);
         capture;
         $display("PASS menu: R0,1FF,0 copied the loader, G0 reached the ROM disk menu, frame.hex");
+    end else if (scenario == "menu64") begin
+        // the 64 KB regression through the PSRAM: game disk 2 (+cart_size=65536) in the ROM disk slot;
+        // to_menu: RAM 0000-01FF = image 0000-01FF after R0,1FF,0, then G0 to the games loader's GETCH
+        // call at 741C (as in Kiselev's loader)
+        boot(1'b1, 2'd0);
+        if (sys.rk86.romdisk_64k !== 1'b1 || sys.rk86.romdisk_card !== 1'b0) fail("menu64: a 65536-byte image, not the 64 KB wiring");
+        to_menu;
+        $display("PASS menu64: 64 KB game disk through the PSRAM, R0,1FF,0 copied the loader, G0 reached the menu");
+    end else if (scenario == "card") begin
+        // the J6 bank card (+cart_size=131072): bank 0 the card menu (scripts/romdisk/card.py), bank 1 game
+        // disk 2. R0,1FF,0 and G0 start the card menu (7400-75FF, its key wait at +card_keywait); key 0
+        // selects bank 1 (SELBK: PC7 falls to port C 7F), copies its 0000-01FF to 0000 and jumps there:
+        // disk 2's own loader relocates to 7400 and reaches its GETCH call at 741C. Then Core Settings
+        // Reset keeps the bank, Cold boot clears it (card_reset).
+        if (!$value$plusargs("card_keywait=%d", card_keywait)) fail("card: no +card_keywait");
+        if (card_keywait < 16'h7400 || card_keywait > 16'h75FF || card_keywait == 16'h741C)
+            fail("card: +card_keywait not in 7400-75FF, or 741C");
+        boot(1'b1, 2'd0);
+        if (sys.rk86.romdisk_card !== 1'b1 || sys.rk86.romdisk_64k !== 1'b1) fail("card: a 131072-byte image, not the card wiring");
+        if (sys.rk86.cart.bank !== 7'd0) fail("card: bank not 0 after the slot load");
+        r_g0;                                        // RAM 0000-01FF = the card menu, then G0
+        wait_fetch(card_keywait[15:0], MENU_FRAMES, "no card menu");
+        if (sys.rk86.cart.bank !== 7'd0) fail("card: bank not 0 in the card menu");
+        type_char("0");
+        start_frame = frames;
+        while (sys.rk86.cart.bank !== 7'd1) begin
+            @(posedge clk);
+            if (frames - start_frame > MENU_FRAMES) fail("card: key 0 did not select bank 1");
+        end
+        info_wait("bank 1 selected", frames - start_frame, MENU_FRAMES);
+        wait_fetch(16'h0000, copy_frames(512), "card: disk 2's loader not started at 0000");
+        wait_fetch(16'h741C, MENU_FRAMES, "no menu of disk 2");
+        check_ram(0, 65536, 512, "disk 2 loader not in 0000-01FF");
+        check_ram(16'h7400, 65536, 512, "disk 2 loader not in 7400-75FF");
+        if (sys.rk86.cart.bank !== 7'd1) fail("card: bank not 1 in the menu of disk 2");
+        $display("INFO: card: card menu, key 0, bank 1, the menu of disk 2 at frame %0d", frames);
+        bridge_write(32'h100, 1);                    // Core Settings > Reset (the machine reset)
+        if (!sys.rk86.reset) fail("card: Reset did not reset the machine");
+        wait (!sys.rk86.reset);
+        wait_fetch(16'hFE63, FE63_FRAMES, "card: no keyboard loop after Reset");
+        if (sys.rk86.cart.bank !== 7'd1) fail("card: Reset changed the bank");
+        bridge_write(32'h100, 2);                    // Core Settings > Cold boot (card_reset)
+        wait (sys.rk86.clear_active); wait (!sys.rk86.clear_active);
+        wait_fetch(16'hFE63, FE63_FRAMES, "card: no keyboard loop after Cold boot");
+        if (sys.rk86.cart.bank !== 7'd0) fail("card: Cold boot did not clear the bank");
+        $display("PASS card: card menu, key 0, bank 1, the menu of disk 2; Reset keeps the bank, Cold boot clears it");
     end else if (scenario == "xonix") begin
         boot(1'b1, 2'd0);
         if (sys.rk86.romdisk_64k !== 1'b0) fail("xonix: Kiselev's 32256-byte image, the 64 KB wiring chosen");

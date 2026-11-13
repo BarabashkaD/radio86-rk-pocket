@@ -1,13 +1,13 @@
 diff --git a/fpga/rtl/pocket_slot_loader.v b/fpga/rtl/pocket_slot_loader.v
-index fe5235a..619375e 100644
+index 5149535..2134463 100644
 --- a/fpga/rtl/pocket_slot_loader.v
 +++ b/fpga/rtl/pocket_slot_loader.v
-@@ -77,7 +77,7 @@ always @(posedge clk)
+@@ -105,7 +105,7 @@ always @(posedge clk)
  // synthesis translate_on
  wire busy = left != 3'd0;
- wire [16:0] limit = target == MONITOR ? limit_m : target == FONT ? limit_f : limit_c;
+ wire [16:0] limit = target == MONITOR ? limit_m : limit_f;
 -wire write = busy && offset < limit;
 +wire write = busy;
  assign monitor_we = write && target == MONITOR;
  assign font_we = write && target == FONT;
- assign romdisk_we = write && target == ROMDISK;
+ assign byte_a = offset[15:0];

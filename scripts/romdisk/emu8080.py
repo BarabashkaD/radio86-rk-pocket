@@ -5,6 +5,8 @@ Stubs: F818 print string at HL, F803 get a key, FA68 copy ROM disk HL..DE to RAM
 FE01, FE72: 18 bytes with the return address).
 """
 
+from card_model import fa68_copy
+
 PRINT, GETCH, COPY = 0xF818, 0xF803, 0xFA68
 STUBS = (PRINT, GETCH, COPY)
 STUB_STACK = 16
@@ -199,15 +201,36 @@ class Cpu:
             raise EmuError('opcode %02X at %04X' % (op, at))
 
 
-def run_menu(rom, keys, max_steps=5_000_000, ram=None, start=0):
+class CardRam(bytearray):
+    """RAM of a machine with the ROM disk card: integer indexes A000-BFFF go to the card, not to the RAM."""
+
+    card = None
+
+    def __getitem__(self, i):
+        if isinstance(i, int) and 0xA000 <= i <= 0xBFFF:
+            return self.card.read(i & 3)
+        return super().__getitem__(i)
+
+    def __setitem__(self, i, v):
+        if isinstance(i, int) and 0xA000 <= i <= 0xBFFF:
+            self.card.write(i & 3, v)
+        else:
+            super().__setitem__(i, v)
+
+
+def run_menu(rom, keys, max_steps=5_000_000, ram=None, start=0, card=None):
     """Runs G<start> with SP 76CF, as the monitor's G does, with the ROM disk rom: by default G0 on a RAM holding
     the ROM's first 512 bytes; with ram (for example the RAM after an earlier run, as after Reset) and
-    start=LOADER_MENU, G7416."""
+    start=LOADER_MENU, G7416. With card (a card_model.CardPpi), A000-BFFF is the card's ports and the FA68
+    stub reads the card as the monitor does; rom is then used only for the default first 512 bytes."""
     if ram is None:
         ram = bytearray(65536)
         ram[0:512] = rom[0:512]
     else:
         ram = bytearray(ram)
+    if card is not None:
+        ram = CardRam(ram)
+        ram.card = card
     cpu = Cpu(ram)
     cpu.sp = 0x76CF
     cpu.pc = start
@@ -238,9 +261,15 @@ def run_menu(rom, keys, max_steps=5_000_000, ram=None, start=0):
                 hl, de, bc = cpu.hl(), cpu.pair(1), cpu.pair(0)
                 copies.append((hl, de, bc))
                 n = de - hl + 1
-                for k in range(n):
-                    o = hl + k
-                    ram[(bc + k) & 0xFFFF] = rom[o] if o < len(rom) else 0xFF
+                if card is not None:
+                    data = fa68_copy(card, hl, de)
+                    n = len(data)
+                    for k in range(n):
+                        ram[(bc + k) & 0xFFFF] = data[k]
+                else:
+                    for k in range(n):
+                        o = hl + k
+                        ram[(bc + k) & 0xFFFF] = rom[o] if o < len(rom) else 0xFF
                 cpu.set_pair(2, de)
                 cpu.set_pair(0, bc + n)
             cpu.pc = cpu.pop()

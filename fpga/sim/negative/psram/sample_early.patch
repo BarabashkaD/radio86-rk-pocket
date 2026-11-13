@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..774c171 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -108,7 +108,7 @@ wire do_bcr = free && !started && start_cnt == START_TICKS;
+ wire do_write = free && ready && pending;
+ wire do_read = free && ready && !pending && (!valid || rd_addr[22:1] != word_addr);
+ wire start = do_bcr || do_write || do_read;
+-wire sample = step && tn == T_SAMPLE && kind == READ;   // DQ into word at this edge (tb_psram checks its hold)
++wire sample = step && tn == 4'd5 && kind == READ;   // DQ into word at this edge (tb_psram checks its hold)
+ 
+ assign rd_ready = ready && valid && word_addr == rd_addr[22:1];
+ assign rd_data = !ready ? 8'hFF : rd_addr[0] ? word[15:8] : word[7:0];
