@@ -1,13 +1,13 @@
 diff --git a/fpga/rtl/pocket_slot_loader.v b/fpga/rtl/pocket_slot_loader.v
-index fe5235a..0414a8f 100644
+index 5149535..c063b71 100644
 --- a/fpga/rtl/pocket_slot_loader.v
 +++ b/fpga/rtl/pocket_slot_loader.v
-@@ -48,7 +48,7 @@ always @(posedge clk or negedge reset_n)
+@@ -65,7 +65,7 @@ always @(posedge clk or negedge reset_n)
              case (request_id)
                  16'd0: if (request_size <= 32'd2048) begin request_ok <= 1'b1; limit_m <= request_size[16:0]; end
                  16'd1: if (request_size <= 32'd1024) begin request_ok <= 1'b1; limit_f <= request_size[16:0]; end
--                16'd2: if (request_size <= 32'd65536) begin request_ok <= 1'b1; limit_c <= request_size[16:0]; end
-+                16'd2: if (request_size <= 32'd32768) begin request_ok <= 1'b1; limit_c <= request_size[16:0]; end
+-                16'd2: if (request_size <= 32'd8388608) begin request_ok <= 1'b1; limit_c <= request_size[23:0]; end
++                16'd2: if (request_size <= 32'd65536) begin request_ok <= 1'b1; limit_c <= request_size[23:0]; end
                  default: ;
              endcase
      end

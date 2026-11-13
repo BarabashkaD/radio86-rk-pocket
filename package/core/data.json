@@ -7,7 +7,7 @@
       {"name": "Font", "id": 1, "required": true, "parameters": 10, "nonvolatile": false, "deferload": false,
        "filename": "font.bin", "extensions": ["bin"], "size_maximum": 1024, "address": "0x21000000"},
       {"name": "ROM disk", "id": 2, "required": false, "parameters": 75, "nonvolatile": false, "deferload": false,
-       "filename": "romdisk.bin", "extensions": ["bin"], "size_maximum": 65536, "address": "0x22000000"}
+       "filename": "romdisk.bin", "extensions": ["bin"], "size_maximum": 8388608, "address": "0x22000000"}
     ]
   }
 }

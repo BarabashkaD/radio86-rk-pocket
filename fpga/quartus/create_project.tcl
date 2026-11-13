@@ -34,11 +34,11 @@ close $prj
 # apf_constraints.sdc reads core/core_constraints.sdc relative to the project directory: place a copy in the build
 file mkdir [file join $build core]
 file copy -force [file join $fpga core core_constraints.sdc] [file join $build core core_constraints.sdc]
-foreach f {rtl/pocket_machine_cdc.sdc rtl/pocket_audio_cdc.sdc rtl/pocket_bus_cdc.sdc} {
+foreach f {rtl/pocket_machine_cdc.sdc rtl/pocket_audio_cdc.sdc rtl/pocket_bus_cdc.sdc rtl/pocket_psram.sdc} {
     set_global_assignment -name SDC_FILE [file join $fpga $f]
 }
 set_global_assignment -name ALLOW_POWER_UP_DONT_CARE OFF
-# initial loops: pocket_memory clears its 32768-byte RAM, pocket_rom8 fills the 65536-byte ROM disk with FF
-# (the default limit is 5000 iterations)
+# initial loop: pocket_memory sets its 34816 bytes (the 32768-byte RAM to 00, the monitor's 2048 to FF);
+# the default limit is 5000 iterations
 set_global_assignment -name VERILOG_CONSTANT_LOOP_LIMIT 70000
 project_close

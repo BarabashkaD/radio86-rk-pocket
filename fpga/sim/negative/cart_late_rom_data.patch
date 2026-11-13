@@ -1,0 +1,19 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..649cf21 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -106,7 +106,13 @@ wire step = busy && t != T_LAST;        // the access in flight goes on to tick
+ wire free = !busy || t == T_LAST;       // an access may start at this edge
+ wire do_bcr = free && !started && start_cnt == START_TICKS;
+ wire do_write = free && ready && pending;
+-wire do_read = free && ready && !pending && (!valid || rd_addr[22:1] != word_addr);
++reg [22:0] late_addr = 23'd0;           // a read starts only 120 clk after rd_addr last changed
++reg [6:0] late = 7'd0;
++always @(posedge clk) begin
++    late_addr <= rd_addr;
++    if (rd_addr != late_addr) late <= 7'd0; else if (late != 7'd120) late <= late + 7'd1;
++end
++wire do_read = free && ready && !pending && late == 7'd120 && (!valid || rd_addr[22:1] != word_addr);
+ wire start = do_bcr || do_write || do_read;
+ wire sample = step && tn == T_SAMPLE && kind == READ;   // DQ into word at this edge (tb_psram checks its hold)
+ 

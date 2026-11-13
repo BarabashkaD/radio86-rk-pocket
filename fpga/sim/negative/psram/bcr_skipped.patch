@@ -1,0 +1,21 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..089a09c 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -104,7 +104,7 @@ reg [15:0] word = 16'hFFFF;
+ wire [3:0] tn = t + 4'd1;
+ wire step = busy && t != T_LAST;        // the access in flight goes on to tick tn
+ wire free = !busy || t == T_LAST;       // an access may start at this edge
+-wire do_bcr = free && !started && start_cnt == START_TICKS;
++wire do_bcr = 1'b0;
+ wire do_write = free && ready && pending;
+ wire do_read = free && ready && !pending && (!valid || rd_addr[22:1] != word_addr);
+ wire start = do_bcr || do_write || do_read;
+@@ -121,6 +121,7 @@ always @(posedge clk)
+         cram_lb_n <= 1'b1; cram_ub_n <= 1'b1; cram_cre <= 1'b0; dq_oe <= 1'b0;
+     end else begin
+         if (!started && start_cnt != START_TICKS) start_cnt <= start_cnt + 14'd1;
++        if (!started && start_cnt == START_TICKS) begin started <= 1'b1; ready <= 1'b1; end
+         // the tick counter
+         if (start) begin busy <= 1'b1; t <= 4'd0; end
+         else if (step) t <= tn;

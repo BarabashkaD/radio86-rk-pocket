@@ -1,8 +1,8 @@
 diff --git a/fpga/rtl/radio86rk_pocket.v b/fpga/rtl/radio86rk_pocket.v
-index 6a0efa1..257f574 100644
+index 8927c78..5e334f5 100644
 --- a/fpga/rtl/radio86rk_pocket.v
 +++ b/fpga/rtl/radio86rk_pocket.v
-@@ -135,7 +135,7 @@ always @(posedge clk)
+@@ -142,7 +142,7 @@ always @(posedge clk)
  // was pc0 ^ inte, the replica's choice (spec 4.5). pc0 is the tape output, unused on the Pocket.
  reg beeper_level = 1'b0;
  always @(posedge clk)

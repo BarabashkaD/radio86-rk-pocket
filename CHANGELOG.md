@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+A test build run on a Pocket by the maintainer (2026-11-13). The 8 MB card wiring is not tested (no loader yet).
+
+- ROM disk in the Pocket's PSRAM (`cram0`, die 0, asynchronous mode): the 64 KB block RAM is gone (64 M10K blocks freed: 69 of 308 RAM blocks in the build, was 133). New `pocket_psram.v` (one state machine on `clk_74a`, 13 ticks per access, DQ sampled a tick before OE#/CE# rise, no new clock) and `pocket_psram.sdc`. After the power-up reset it waits tPU (151 us), writes the BCR to 9D1Fh through CRE (asynchronous mode, whatever an earlier core left), then raises `ready`; APF slot requests wait for `ready`.
+- Data slot 2 takes up to 8388608 bytes (8 MB; `data.json` `size_maximum`). A bridge word goes to the PSRAM whole (two 16-bit writes). The font and the monitor keep their block RAM (`pocket_rom8.v` is the font only).
+- No fill: without an image port A reads FF (`loaded`); beyond a shorter image port A reads whatever the PSRAM holds. Before, they read FF until a longer image had been loaded.
+- `pocket_cart_ppi`: a third wiring, the 8 MB ROM card (image above 65536 bytes: port B and PC0-PC6 = ROM A0-A14, a bank latch on a rising edge of PC7 = ROM A15-A22). It is in the RTL only: no loader, no tests, no faults. The 32 KB and 64 KB wirings are unchanged.
+- Tests: new unit TB `psram` with a PSRAM model (7 faults; the model drives X from the OE#/CE# rise, and the TB checks the hold of every read sample); `slot_loader` (5 faults) and `cart_ppi` (5 faults) run through the PSRAM; new system scenario `menu64` (64 KB game disk 2 to its menu; needs `build/romdisks`; 127 min remote).
+
 ## 0.8.2 (2026-11-11)
 
 Run on a Pocket by the maintainer (2026-11-12): Kiselev's ROM disk, then a 64 KB game disk loaded from the core's menu.

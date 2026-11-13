@@ -18,7 +18,8 @@ flowchart LR
     subgraph pk["Pocket: core_top.v, pocket_system, radio86rk_pocket"]
         p_ast["pocket_slot_loader<br/>monitor, font, ROM disk"]
         p_mem["pocket_memory<br/>RAM and monitor, one port"]
-        p_cart["pocket_cart_ppi<br/>A000-BFFF block: second 8255,<br/>ROM disk"]
+        p_cart["pocket_cart_ppi<br/>A000-BFFF block: second 8255,<br/>ROM disk wiring"]
+        p_psram["pocket_psram<br/>ROM disk image in PSRAM cram0"]
         p_set["pocket_interact<br/>Core Settings"]
         p_kbd["pocket_remap, pocket_keyboard<br/>buttons, K1 state"]
         p_ras["pocket_raster<br/>locks to HRTC, VRTC"]
@@ -26,8 +27,10 @@ flowchart LR
         p_fv["pocket_frame_video<br/>two frame banks, K1 panel, 60 Hz"]
         p_snd["pocket_audio<br/>48 kHz I2S"]
     end
-    p_ast --> p_mem
-    p_ast --> p_cart
+    p_ast -->|"monitor"| p_mem
+    p_ast -->|"slot 2 words"| p_psram
+    p_ast -->|"image size: wiring, loaded"| p_cart
+    p_cart <-->|"ROM A22-A0, byte"| p_psram
     p_ast -->|"font"| m16
     p_mem <-->|"bus_a: CPU, or DMA while AEN"| m16
     p_cart <-->|"ext_rd_n, ext_we_n, ext_di; bus_a A1, A0"| m16
@@ -45,7 +48,7 @@ flowchart LR
 | `apf/`, `core/` | APF template (open-fpga/core-template da3a021) with the Analogue notices; `core/core_top.v`: pins, bridge, PLL, one `pocket_system` |
 | `rtl/` | our logic; `pocket_system.v` is everything behind the template, `radio86rk_pocket.v` the board around the machine |
 | `quartus/` | `ap_core.qsf`, `create_project.tcl`, CDC and timing report scripts |
-| `sim/` | `run_sim.py`, `frame_compare.py`, `run_core_machine.py`; `unit/`, `system/`, `memory/` (`tb_rk86_mem16.v`), `cpu16/`, `negative/` (faults as `.patch`), `golden/` (reference frames) |
+| `sim/` | `run_sim.py`, `frame_compare.py`, `run_core_machine.py`; `unit/`, `system/`, `memory/` (`tb_rk86_mem16.v`, `psram_model.v`), `cpu16/`, `negative/` (faults as `.patch`), `golden/` (reference frames) |
 
 ## Clocks
 
@@ -85,8 +88,17 @@ Origin, licence and changes of each file: the fork's [src/rtl/rk86_16/README.md]
 - **DMA** (the board's wiring): the 8257 uses only channel 2, memory to the 8275; its MEMR is not connected. While AEN is high the address bus carries the 8257's address, and the 8275 receives the byte of whatever is there (RAM, an 8255, the 8275, the monitor ROM): DMA reads are decoded like CPU reads. Bursts of 8 characters; the 8275 drops DRQ at every DMA write, so the 8257 makes one HOLD period per character. The CPU keeps about 45 % of the Φ cycles; programs run slower than in emulators that model continuous bursts.
 - **Memory**: one port at `bus_a` (CPU, or 8257 while AEN); the byte follows `bus_a` one `clk` later whatever the read strobe; written only by the CPU's WR, never during AEN or while the monitor is selected; no wait states.
 - **Start-up mapping**: from reset to the first read with A15 = 1 the monitor answers every address; RAM and devices are off.
-- **ROM disk**: `pocket_cart_ppi` in the A000-BFFF block: the fork's 8255 with a ROM disk on its ports, the wiring chosen by the image size (`pocket_slot_loader` `romdisk_64k`). Up to 32768 bytes Kiselev's: port B and PC0-PC6 = ROM A0-A14; port A = ROM data while PC7 is a low output. Above it a 64 KB ROM: port B and port C = ROM A0-A15 (PC7 = A15), port A = ROM data, always on. Pins programmed as inputs float high (FF). Image from data slot 2 into a 64 KB memory. The 8255's A1, A0 come from the system address `bus_a`, also during DMA.
+- **ROM disk**: `pocket_cart_ppi` in the A000-BFFF block: the fork's 8255 with a ROM disk on its ports, the wiring chosen by the image size (`pocket_slot_loader` `romdisk_64k`, `romdisk_card`). Pins programmed as inputs float high (FF). The ROM address A22-A0 goes to `pocket_psram`, whose byte comes back as `rom_data` (at most 24 clk after an address change; the 8080 reads port A at least 167 clk after a port write). The wirings:
+
+  | Image size | Wiring | ROM address | Port A |
+  |---|---|---|---|
+  | up to 32768 bytes | Kiselev's 32 KB | port B and PC0-PC6 = A0-A14 | ROM data while PC7 is a low output |
+  | 32769 to 65536 bytes | 64 KB ROM | port B and port C = A0-A15 (PC7 = A15) | ROM data, always on |
+  | above 65536 bytes (up to 8 MB) | 8 MB ROM card | port B and PC0-PC6 = A0-A14; a bank latch takes port B on a rising edge of PC7 and gives A15-A22 (256 banks of 32 KB; cleared by the core reset) | ROM data, always on |
+
+  The card wiring is in the RTL only: no loader and no tests yet. Image from data slot 2 into the PSRAM. The 8255's A1, A0 come from the system address `bus_a`, also during DMA.
 - **Sound**: INTE only, as on both boards.
+- **Memories**: block RAM, 69 of 308 blocks in the build (133 with the ROM disk in block RAM); the RAM, the monitor and the font stay there. The ROM disk is in the Pocket's PSRAM `cram0` (die 0 only, asynchronous mode, `rtl/pocket_psram.v`, one state machine on `clk_74a`, 13 ticks per access, DQ sampled at t10 and `ce_n`/`oe_n` raised at t11, a full tick later, since the part has no minimum output hold; `ce_n` high between accesses). At start-up it waits tPU (151 us), writes the BCR to 9D1Fh through CRE, then raises `ready`; it resets only with the power-up reset. The cram0 pins are bounded to one tick by `rtl/pocket_psram.sdc`. `cram1`, SRAM and SDRAM stay tied off. Build: setup slack +1.580 ns, the cram0 output and input registers packed into I/O cells.
 
 ## Video
 
@@ -151,11 +163,12 @@ From `package/core/data.json`; sizes are maximums.
 |---|---|---|---|---|---|---|
 | 0 | Monitor | monitor.bin | 0x2000_0000 | up to 2048 | yes | 10: core-specific, read-only |
 | 1 | Font | font.bin | 0x2100_0000 | up to 1024 | yes | 10: core-specific, read-only |
-| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 65536 | no | 75: also user-reloadable, core reset while loading |
+| 2 | ROM disk | romdisk.bin | 0x2200_0000 | up to 8388608 | no | 75: also user-reloadable, core reset while loading |
 
-- Written byte by byte as they are (`pocket_slot_loader`); bytes beyond the requested size and writes while the core runs are dropped. No checks.
+- Slots 0 and 1: written byte by byte as they are (`pocket_slot_loader`), decoded on `bridge_address[31:16]`. Slot 2 (decoded on `bridge_address[31:23]`, a 23-bit byte offset): each bridge word goes whole to `pocket_psram` (two 16-bit writes). Bytes beyond the requested size and writes while the core runs are dropped. No checks.
+- APF slot requests are held off until the PSRAM controller is `ready` (after tPU and the BCR write, `pocket_system`).
 - A ROM disk reload: APF holds the core in reset, writes the file, the machine restarts with the RAM kept (`pocket_cold_clear` runs only at the first boot and on Cold boot).
-- Missing ROM disk: every ROM disk byte reads FF (port A of the second 8255), as do the bytes after a shorter image.
+- Missing ROM disk (no image in slot 2): every ROM disk byte reads FF (port A of the second 8255, `loaded`). No fill: the bytes after a shorter image read whatever the PSRAM holds, so a shorter image loaded after a longer one leaves the old tail.
 - Sizes and CRCs of the bundled files: [../package/assets.json](../package/assets.json).
 
 ## Core Settings size limit

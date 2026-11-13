@@ -260,19 +260,7 @@ assign port_tran_sck_dir = 1'b0;    // clock direction can change
 assign port_tran_sd = 1'bz;
 assign port_tran_sd_dir = 1'b0;     // SD is input and not used
 
-// tie off the rest of the pins we are not using
-assign cram0_a = 'h0;
-assign cram0_dq = {16{1'bZ}};
-assign cram0_clk = 0;
-assign cram0_adv_n = 1;
-assign cram0_cre = 0;
-assign cram0_ce0_n = 1;
-assign cram0_ce1_n = 1;
-assign cram0_oe_n = 1;
-assign cram0_we_n = 1;
-assign cram0_ub_n = 1;
-assign cram0_lb_n = 1;
-
+// tie off the rest of the pins we are not using (cram0: the ROM disk, pocket_system below)
 assign cram1_a = 'h0;
 assign cram1_dq = {16{1'bZ}};
 assign cram1_clk = 0;
@@ -534,7 +522,10 @@ pocket_system sys(.clk_74a(clk_74a), .clk_core_12288(clk_core_12288),
     .dataslot_requestwrite_ok(dataslot_requestwrite_ok), .dataslot_allcomplete(dataslot_allcomplete),
     .cont1_key(cont1_key), .video_rgb(video_rgb), .video_de(video_de), .video_hs(video_hs), .video_vs(video_vs),
     .video_skip(video_skip), .audio_dac(audio_dac), .audio_lrck(audio_lrck),
-    .memory_ready(memory_ready));
+    .memory_ready(memory_ready),
+    .cram0_a(cram0_a), .cram0_dq(cram0_dq), .cram0_adv_n(cram0_adv_n), .cram0_ce0_n(cram0_ce0_n),
+    .cram0_ce1_n(cram0_ce1_n), .cram0_oe_n(cram0_oe_n), .cram0_we_n(cram0_we_n), .cram0_ub_n(cram0_ub_n),
+    .cram0_lb_n(cram0_lb_n), .cram0_cre(cram0_cre), .cram0_clk(cram0_clk));
 always @* begin
     bridge_rd_data = 32'h0;
     if (system_rd_selected) bridge_rd_data = system_rd_data;

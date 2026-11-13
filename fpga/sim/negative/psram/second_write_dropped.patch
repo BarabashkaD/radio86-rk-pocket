@@ -1,0 +1,13 @@
+diff --git a/fpga/rtl/pocket_psram.v b/fpga/rtl/pocket_psram.v
+index b0126db..885737a 100644
+--- a/fpga/rtl/pocket_psram.v
++++ b/fpga/rtl/pocket_psram.v
+@@ -141,7 +141,7 @@ always @(posedge clk)
+             acc_data <= half ? {pend_data[7:0], pend_data[15:8]} : {pend_data[23:16], pend_data[31:24]};
+             cram_lb_n <= 1'b0; cram_ub_n <= 1'b0;
+             half <= !half;
+-            if (half) pending <= 1'b0;
++            pending <= 1'b0;
+         end
+         if (do_read) begin
+             kind <= READ; cram_cre <= 1'b0;

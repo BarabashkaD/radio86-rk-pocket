@@ -2,6 +2,8 @@ Radio-86RK ROM disks
 
 The ROM disk is a memory of up to 64 KB on the ports of the Radio-86RK's second
 8255 (the A000-BFFF block). At start the core loads romdisk.bin from this folder.
+The slot takes images up to 8 MB, but an image above 64 KB uses the 8 MB card
+wiring, which has no menu loader yet.
 
 Run a program from the ROM disk
 1. Open the on-screen keyboard with L+R (D-pad selects a key, B presses it, X is CR).
@@ -12,10 +14,10 @@ Run a program from the ROM disk
 
 Change the ROM disk
 - While the core runs: open the Pocket menu (the Analogue button), load the
-  "ROM disk" slot again and pick a .bin file of this folder (up to 65536 bytes).
-  The Pocket holds the machine in reset while it loads the file, then the machine
-  restarts as after Core Settings > Reset: the memory is kept. Type R0,1FF,0 and
-  G0 again for the new disk's menu.
+  "ROM disk" slot again and pick a .bin file of this folder (up to 65536 bytes
+  for the menu loaders). The Pocket holds the machine in reset while it loads the
+  file, then the machine restarts as after Core Settings > Reset: the memory is
+  kept. Type R0,1FF,0 and G0 again for the new disk's menu.
 - At the next start the core loads romdisk.bin again. To start with another disk,
   keep romdisk.bin under another name and copy the other disk here as romdisk.bin.
 

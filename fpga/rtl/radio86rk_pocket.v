@@ -1,7 +1,8 @@
 // The Radio-86RK board of the Analogue Pocket around rk86_machine16, the machine with the original
 // 16 MHz timing (the core's src/rtl/rk86_16, spec 0.8.0), in one clock domain, clk_74a: the 16 MHz
-// clock enable, the reset, the memory, the font, the ROM disk, the keyboard, the native raster
-// (pocket_raster) and the 408 x 300 display window (pocket_window), the beeper.
+// clock enable, the reset, the memory, the font, the ROM disk device, the keyboard, the native raster
+// (pocket_raster) and the 408 x 300 display window (pocket_window), the beeper. The ROM disk image
+// itself is in the PSRAM (pocket_psram in pocket_system): romdisk_address out, romdisk_data back.
 `default_nettype none
 module radio86rk_pocket(
     input  wire        clk,               // clk_74a
@@ -17,8 +18,11 @@ module radio86rk_pocket(
     input  wire  [1:0] palette,           // Keyboard colours (interact 0x118)
     input  wire        monitor_we,        // pocket_slot_loader: a monitor byte at byte_a[10:0]
     input  wire        font_we,           // a font byte at byte_a[9:0]
-    input  wire        romdisk_we,        // a ROM disk byte at byte_a[15:0]
+    input  wire        romdisk_loaded,    // pocket_slot_loader: a ROM disk image was accepted
     input  wire        romdisk_64k,       // the ROM disk image is above 32 KB: the 64 KB wiring
+    input  wire        romdisk_card,      // the ROM disk image is above 64 KB: the 8 MB card wiring
+    output wire [22:0] romdisk_address,   // the ROM disk byte address A22-A0, to pocket_psram
+    input  wire  [7:0] romdisk_data,      // its byte from pocket_psram
     input  wire [15:0] byte_a,
     input  wire  [7:0] byte_d,
     output wire        pixel_valid,
@@ -89,17 +93,17 @@ pocket_memory mem(.clk(clk), .reset(reset), .bus_a(bus_a), .cpu_do(cpu_do), .cpu
     .load_we(load_we), .load_a(load_a), .load_d(load_d), .rus_mode(rus_mode));
 pocket_rom8 #(.AW(10), .FILL(8'h00)) font_rom(.clk(clk), .we(font_we), .wa(byte_a[9:0]), .wd(byte_d),
     .ra(font_address), .rd(font_data), .tag());
-wire [15:0] cartridge_address;
-wire [7:0] cartridge_data;
-pocket_rom8 #(.AW(16), .FILL(8'hFF)) romdisk(.clk(clk), .we(romdisk_we), .wa(byte_a), .wd(byte_d),
-    .ra(cartridge_address), .rd(cartridge_data), .tag());
 // the A000-BFFF block (second 8255; the machine's "window": ext_rd_n, ext_we_n, ext_di). The decoder looks
 // only at A15-A13 and gates ext_rd_n / ext_we_n, so CS is tied active. The 8255's pins A1, A0 pick one of
 // its 4 registers; they take address lines A1, A0 of bus_a (the CPU's address, the 8257's during DMA), so
-// the registers repeat every 4 bytes. The ROM disk memory starts at FF: with no image port A reads FF.
-// The wiring follows the image size: up to 32 KB Kiselev's (PC7 the ROM enable), above it 64 KB (PC7 = A15).
-pocket_cart_ppi cart(.clk(clk), .reset(reset), .cs_n(1'b0), .rd_n(ext_rd_n), .wr_n(ext_we_n), .wide(romdisk_64k),
-    .a(bus_a[1:0]), .d_i(cpu_do), .d_o(ext_di), .rom_address(cartridge_address), .rom_data(cartridge_data));
+// the registers repeat every 4 bytes. The ROM disk is in the PSRAM: without an image (romdisk_loaded low)
+// port A reads FF; beyond the end of a shorter image it reads whatever the PSRAM holds there.
+// The card follows the image size: up to 32 KB a 32 KB ROM (A15 not wired: 8000-FFFF mirror 0000-7FFF),
+// up to 64 KB a 64 KB ROM (PC7 = A15), above 64 KB the J6 bank card (a bank latch loaded when port C goes
+// to 7F with PC7 falling). The machine reset keeps the bank; power-up, a slot load and Cold boot clear it.
+pocket_cart_ppi cart(.clk(clk), .reset(reset), .card_reset(!apf_reset_n || cold_boot), .cs_n(1'b0),
+    .rd_n(ext_rd_n), .wr_n(ext_we_n), .wide(romdisk_64k), .card(romdisk_card), .loaded(romdisk_loaded), .a(bus_a[1:0]), .d_i(cpu_do), .d_o(ext_di),
+    .rom_address(romdisk_address), .rom_data(romdisk_data));
 
 //--------- keyboard --------------
 wire [69:0] button_map;

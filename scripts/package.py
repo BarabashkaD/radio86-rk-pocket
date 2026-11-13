@@ -237,7 +237,7 @@ def check_library_zip(zip_path):
 
 
 GUIDE_MARKER = '@GAME_DISKS@'
-ROMDISK_MAX = 65536                 # data.json size_maximum of the ROM disk slot
+ROMDISK_MAX = 65536                 # a game disk's size at most (the 64 KB wiring), not data.json's size_maximum
 
 
 def romdisk_guide(template, disks):
