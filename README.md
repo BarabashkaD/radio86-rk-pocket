@@ -11,15 +11,15 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 ## Status
 
 - Latest release: [0.8.2](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.8.2) (2026-11-11), run on a Pocket by the maintainer. Changes: [CHANGELOG.md](CHANGELOG.md).
-- Not released yet: ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`) and the FAT16 card (`fatcard.bin`).
+- Not released yet: ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`), the FAT16 card (`fatcard.bin`) and the package without ROM disk images (the images as separate downloads).
 - An earlier PSRAM test build (10e6cf4, before the J6 card) ran on a Pocket by the maintainer (2026-11-13).
 - The test build 0.8.3-j6-test with these changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
 
 ## Features
 
 - The original's timing: 16 MHz timebase, CPU 1.778 MHz, 8 MHz dots, 50 Hz frames. CPU, DMA, CRT controller and PPI follow their data sheets; the video DMA takes CPU time as on the original ([fpga/README.md](fpga/README.md#the-16-mhz-machine)).
-- ROM disk with a program menu, and 5 game disks (64 KB each) with 48 games, in the package.
-- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. Both are built from source ([ROM disks and cards](#rom-disks-and-cards)).
+- ROM disk images as separate downloads: Kiselev's ROM disk with a program menu (at its source), 5 game disks (64 KB each) with 48 games, a J6 card menu and a FAT16 card ([ROM disk images](#rom-disk-images)).
+- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. Both are on the release page and can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
 - On-screen keyboard (L+R): the 67 real keys, LAT and RUS, Shift and Ctrl, three palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or A B X Y.
 - Screen: 408 x 300 at 60 Hz, about 25 picture updates per second. Sound: the beeper (INTE), 48 kHz.
@@ -31,8 +31,115 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 1. Download `BarabashkaD.Radio86RK_<version>_<date>.zip` from the [releases](https://github.com/BarabashkaD/radio86-rk-pocket/releases).
 2. Upgrading from 0.5.x: delete `Settings/BarabashkaD.Radio86RK/` on the SD card.
 3. Unzip onto the SD card root. The core appears as "Radio-86RK" (category Computer).
+4. Optional: download the ROM disk images you want and copy them to `Assets/radio86rk/BarabashkaD.Radio86RK/` ([ROM disk images](#rom-disk-images)).
 
-`Assets/radio86rk/BarabashkaD.Radio86RK/` holds `monitor.bin` and `font.bin` (required), `romdisk.bin` (optional), the game disks `romdisk-1.bin` to `romdisk-5.bin` and `romdisks.txt`. Files are loaded as they are, with no checks (monitor up to 2048 bytes, font 1024, ROM disk 8388608).
+The package's `Assets/radio86rk/BarabashkaD.Radio86RK/` holds `monitor.bin` and `font.bin` (required) and `ROMDISKS.txt` (the next section as text, with the game lists). Files are loaded as they are, with no checks (monitor up to 2048 bytes, font 1024, ROM disk 8388608).
+
+<!-- romdisk images: python -B scripts/package.py --readme -->
+## ROM disk images
+
+The ROM disk is a memory card on the ports of the Radio-86RK's second 8255 (the A000-BFFF block).
+The core package holds no ROM disk image: the images are separate downloads, pick the ones you
+want. Without an image the core starts as usual, but every ROM disk byte reads FF, so `R0,1FF,0`
+and `G0` find no menu.
+
+### Where to get them
+
+- From the release page of the core version you installed
+  (https://github.com/BarabashkaD/radio86-rk-pocket/releases):
+  - `romdisk-1.bin` to `romdisk-5.bin`: the five game disks (64 KB each, 48 games).
+  - `card.bin`: a J6 bank card with a card menu (458752 bytes): Kiselev's ROM disk and the five
+    game disks.
+  - `fatcard.bin`: a J6 bank card with a FAT16 file system (8 MB): 52 tape files and a file menu.
+  - `romdisk-LICENSE.txt`: Sergey Kiselev's GPL-3.0 licence. `card.bin` holds his ROM disk,
+    `fatcard.bin` four programs from it, and the game disks' menu loader is derived from his.
+  - `SHA256SUMS.txt`: the SHA256 of every file of the release.
+- Sergey Kiselev's ROM disk (ROM-DISK/32K V3.0-2020, GPL-3.0) is not on the release page. Download
+  `rom_disk.bin` from his repository and save it as `romdisk.bin`:
+  https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/rom_disk.bin
+  (32256 bytes, SHA256 2e870be7e9820ae34ac62e60479bb5d14c07437a89609cbe0fdfb450ce631904; the file's page:
+  https://github.com/skiselev/radio-86rk/blob/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/rom_disk.bin).
+
+### Where to put them
+
+Copy the images to the folder `Assets/radio86rk/BarabashkaD.Radio86RK/` on the SD card, next to
+`monitor.bin` and `font.bin`. The core's menu lists only the `.bin` files of that folder.
+
+### Load an image
+
+- At start the core loads `romdisk.bin` from that folder, if it is there.
+- While the core runs: open the Pocket menu (the Analogue button), load the "ROM disk" slot and
+  pick a `.bin` file (up to 8 MB). The Pocket holds the machine in reset while it loads the file,
+  then the machine restarts as after Core Settings > Reset: the memory is kept, a bank card starts
+  on bank 0.
+- To start with another image, keep `romdisk.bin` under another name and copy the other image to
+  the folder as `romdisk.bin`.
+- The image size picks the card: up to 32 KB a 32 KB ROM (8000-FFFF repeat 0000-7FFF), up to 64 KB
+  a 64 KB ROM, above 64 KB a J6 bank card (128 banks of 64 KB).
+
+### Start the menu
+
+1. Open the on-screen keyboard with L+R (D-pad selects a key, B presses it, X is CR).
+2. At the prompt, type `R0,1FF,0` and CR: the monitor copies the menu loader from the ROM disk to
+   address 0000.
+3. Type `G0` and CR: the menu appears.
+4. Press the key of the program, game or disk. Close the keyboard with L+R to see the whole screen.
+
+- Core Settings > Reset keeps the memory (and the bank of a bank card): `R0,1FF,0` and `G0` show
+  the same menu again.
+- Core Settings > Cold boot clears the memory and selects bank 0 of a bank card; loading the ROM
+  disk slot again selects bank 0 too, with the memory kept.
+- A program that loads over the menu loader (Kiselev's DP/DDT and Xonix, as on the real machine):
+  Core Settings > Reset, then `R0,1FF,0` and `G0` again.
+
+### Kiselev's ROM disk (romdisk.bin)
+
+- `0` BASIC, `1` EDITOR/ASSEMBLER, `2` EDITOR/DISASSEMBLER, `3` DP/DDT, `4` XONIX, `5` OTHELLO,
+  `6` TETRIS.
+- `S` copies the editor to the temporary buffer, `L` the temporary buffer to the editor, `Z`
+  clears the memory.
+- Tetris asks for a level (0-7), then plays with 7 (left), 8 (rotate), 9 (right), 6 (faster) and
+  Space (drop); S pauses. Core Settings > Keys = Digits 7-8-9-6 puts them on the D-pad, with Space
+  on A.
+
+### The game disks (romdisk-1.bin to romdisk-5.bin)
+
+- The menu lists the games with the keys `0` to `9`, then `A` to `Y`; `Z` clears the memory
+  0000-73FF.
+- Another game: Core Settings > Reset, then `R0,1FF,0` and `G0` again; `G7416` alone shows the
+  menu again too, unless the game has overwritten the loader at 7400-75FF.
+- Each game disk is 64 KB: it needs core 0.8.2 or later.
+
+The games of each disk, by menu key: [Game disks](#game-disks).
+
+### The J6 card menu (card.bin)
+
+- The card menu lists `0` KISELEV (Kiselev's ROM disk) and `1` to `5` GAMES 1 to GAMES 5. A key
+  starts that disk's own menu, as if it were the only disk.
+- Core Settings > Reset keeps the chosen disk: `R0,1FF,0` and `G0` show its menu again.
+- Back to the card menu: Core Settings > Cold boot (clears the memory) or load the ROM disk slot
+  again; then `R0,1FF,0` and `G0`.
+
+### The FAT16 card (fatcard.bin)
+
+- 52 tape files: the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello
+  from Kiselev's ROM disk. The menu shows 20 files per page, each with its load addresses.
+- Close the on-screen keyboard and set Core Settings > Keys = Cursor (another preset sends digits
+  or letters, which the menu ignores). Keys on D-pad: Up and Down move the marker, Left and Right
+  turn the page, B (CR) or A (Space) runs the file. Keys on A B X Y: X and B move, Y and A turn the
+  page, D-pad Down (CR) or Right (Space) runs. `Z` on the on-screen keyboard clears 0000-6BFF.
+- A line with `?` instead of addresses is not a tape the loader takes; it does not run.
+- Back to the menu: Core Settings > Reset, then `R0,1FF,0` and `G0`. After a Reset during a page
+  change or a load: Cold boot or load the ROM disk slot again first.
+- CHESS, PACMAN.GAM and Othello load over the menu; `R0,1FF,0` and `G0` load it again.
+
+### Upgrading from 0.8.2
+
+The 0.8.2 package put `romdisk.bin`, `romdisk-1.bin` to `romdisk-5.bin` and `romdisks.txt` in the
+folder. Unzipping a newer package deletes nothing: these images stay there and keep working. The
+package's `ROMDISKS.txt` replaces `romdisks.txt` (the SD card does not tell upper and lower case
+apart, so the file may keep its old name).
+<!-- end of romdisk images -->
 
 ## ROM disks and cards
 
@@ -44,22 +151,14 @@ The ROM disk is a memory card on the ports of the second 8255 (the A000-BFFF blo
 | above 32 KB, up to 64 KB | 64 KB ROM, PC7 = A15 | the game disks |
 | above 64 KB, up to 8 MB | J6 bank card: 128 banks of 64 KB | `card.bin`, `fatcard.bin` |
 
-- To change the ROM disk while the core runs: in the core's menu, load the ROM disk slot again and pick a `.bin` file. The machine restarts with memory kept. At the next start `romdisk.bin` is loaded again.
+- Getting, loading and starting the images: [ROM disk images](#rom-disk-images).
 - Without an image every ROM disk byte reads FF. Bytes beyond the end of an image are not cleared: they still hold a longer image's bytes, or whatever an earlier core left in the PSRAM.
-- Every disk and card starts the same way: `R0,1FF,0` and CR, then `G0` and CR.
 
 ### The ROM disk menu
 
-`romdisk.bin` holds BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER, DP/DDT, Xonix, Othello and Tetris.
-
-1. Open the on-screen keyboard (L+R); D-pad selects, B presses.
-2. Type `R0,1FF,0` and CR (X), then `G0` and CR. The menu appears.
-3. Press the program's digit, e.g. `6` for Tetris. Close the keyboard with L+R.
+Kiselev's `romdisk.bin` ([where to get it](#where-to-get-them), [its keys](#kiselevs-rom-disk-romdiskbin)) after `R0,1FF,0` and `G0`:
 
 ![The ROM disk menu after R0,1FF,0 and G0](images/rom-disk-menu.png)
-
-- Tetris: level 0-7, then 7 left, 8 rotate, 9 right, 6 faster, Space drop, S pause. Keys = Digits 7-8-9-6 puts them on the D-pad, Space on A.
-- Xonix and DP/DDT overwrite the menu loader: Core Settings > Reset, then `R0,1FF,0`, `G0` again.
 
 ### The bank card
 
@@ -68,12 +167,12 @@ An image above 64 KB is a J6 bank card. Old programs and the monitor's `R` see t
 - Power-up, a load of the ROM disk slot and Core Settings > Cold boot select bank 0. Core Settings > Reset keeps the bank, as a real card has no reset line on J6.
 - A program that writes A002/A003 (for example LORUNNER.GAM and SDEMISE.GAM drive port C for sound), or Ctrl-C during a load, can leave another bank selected. Then Cold boot or load the ROM disk slot again.
 - The bank cannot be read back.
-- Card images are not in the package; build them (below).
+- Card images are not in the package: `card.bin` and `fatcard.bin` are on the release page ([ROM disk images](#rom-disk-images)), or build them (below).
 - A reference design of a real card for J6 (never built): [hardware/j6-bank-card.md](hardware/j6-bank-card.md).
 
 ### J6 card menu
 
-A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu.
+A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. The release page has `card.bin`; to build it yourself:
 
 ```text
 git clone --recursive <repo url>
@@ -84,14 +183,11 @@ python -B scripts/romdisk/card.py
 
 `card.py` writes `build/card/card.bin` (458752 bytes) and `card.json`: key `0` is `romdisk.bin` (KISELEV), keys `1`-`5` the game disks 1-5. Other disks: `python -B scripts/romdisk/card.py [--out DIR] [--title T] [--name NAME ...] DISK ...` (up to 19 disks, fewer with long names; names up to 16 characters; a disk of up to 64 KB each).
 
-1. Copy `card.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the ROM disk slot from the core's menu (or copy it as `romdisk.bin`).
-2. `R0,1FF,0`, `G0`: the card menu. Press a disk's key: that disk's own menu appears, as if it were the only disk.
-3. Core Settings > Reset keeps the chosen disk: `R0,1FF,0`, `G0` shows its menu again.
-4. Back to the card menu: Core Settings > Cold boot (clears memory) or load the ROM disk slot again; then `R0,1FF,0`, `G0`.
+Copy `card.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the ROM disk slot from the core's menu (or copy it as `romdisk.bin`). Its menu: [The J6 card menu (card.bin)](#the-j6-card-menu-cardbin).
 
 ### FAT16 card
 
-An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader.
+An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader. The release page has `fatcard.bin`; to build it yourself:
 
 The builder needs mtools: on Windows the MSYS2 UCRT64 package `mingw-w64-ucrt-x86_64-mtools`, on Linux `apt install mtools`; set `MTOOLS_DIR` to their directory, or put them on PATH.
 
@@ -103,24 +199,19 @@ python -B scripts/fatcard/fatcard.py
 
 `fatcard.py` writes `build/fatcard/fatcard.bin` (8388608 bytes) and `fatcard.json` (the file list).
 
-1. Copy `fatcard.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the ROM disk slot from the core's menu.
-2. `R0,1FF,0`, `G0`: the menu, 20 files per page, each with its load addresses.
-3. Close the on-screen keyboard; Core Settings > Keys = Cursor (another preset sends digits or letters, which the menu ignores).
-   - Keys on D-pad: D-pad Up and Down move the marker, Left and Right turn the page, B (CR) or A (Space) runs the file; X (BS) does nothing in the menu.
-   - Keys on A B X Y: X (Up) and B (Down) move, Y (Left) and A (Right) turn the page, D-pad Down (CR) or Right (Space) runs; D-pad Up (BS) does nothing.
-   - `Z` on the on-screen keyboard zeroes 0000-6BFF.
-4. Back to the menu: Core Settings > Reset, then `R0,1FF,0`, `G0` (also while the menu waits for a key). After a Reset during a page change or a load: Cold boot or load the ROM disk slot again first. There is no shortcut like `G7416`.
+Copy `fatcard.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the ROM disk slot from the core's menu. Its menu and keys: [The FAT16 card (fatcard.bin)](#the-fat16-card-fatcardbin).
 
-- A line with `?` instead of addresses is not a tape the loader takes; it does not run. A tape: optional E6, start, end (high byte first), the bytes; it must load into 0000-73FF and be below 64 KB. The checksum is not checked. The loader checks the file, and the FAT chain of every cluster the load needs, before it writes memory; a refusal (`NOT A TAPE`, `BAD FILE`) returns to the monitor's prompt.
+- In the menu X (BS) on the D-pad preset, or D-pad Up (BS) on the A B X Y preset, does nothing. `R0,1FF,0`, `G0` brings the menu back also while it waits for a key; there is no shortcut like `G7416`.
+- A tape the loader takes: optional E6, start, end (high byte first), the bytes; it must load into 0000-73FF and be below 64 KB. The checksum is not checked. The loader checks the file, and the FAT chain of every cluster the load needs, before it writes memory; a refusal (`NOT A TAPE`, `BAD FILE`) returns to the monitor's prompt.
 - The menu shows the root directory in its order: 8.3 names, up to 511 files; files added with mtools appear too.
 - FAT16 only: a FAT12 volume (fewer than 4085 clusters, about 2 MB or less) is not detected by the boot stage and loads wrong data; build images with `fatcard.py`.
-- CHESS, PACMAN.GAM and Othello load over the menu (6C00-73FF); `R0,1FF,0`, `G0` loads it again.
+- CHESS, PACMAN.GAM and Othello load over the menu (6C00-73FF).
 - BASIC: the file runs to 2117h with zeros, so RAM 2000-2117 is cleared (Kiselev's loader cleared only 2117h).
 - DP/DDT is not on the card yet: it loads to 6400-76FF, over the loader and the monitor's variables.
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). `romdisks.txt` and the core's info list the games too.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). They are on the release page ([ROM disk images](#rom-disk-images)), not in the package; `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
 
 <!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->
 **`romdisk-1.bin`** (9 games)
@@ -197,8 +288,7 @@ python -B scripts/fatcard/fatcard.py
 | 9 | ZAGIB | Загибон |
 <!-- end of game disks -->
 
-- Load a disk from the core's menu, or copy it as `romdisk.bin`. The [J6 card menu](#j6-card-menu) puts all five on one card.
-- `R0,1FF,0`, `G0`: keys `0`-`9`, then `A`-`Y`; `Z` clears 0000-73FF. Another game: Reset, then `R0,1FF,0`, `G0`, or `G7416` if the loader at 7400-75FF is intact.
+- Load a disk from the core's menu, or copy it as `romdisk.bin`; its menu keys: [The game disks](#the-game-disks-romdisk-1bin-to-romdisk-5bin). The [J6 card menu](#j6-card-menu) puts all five on one card.
 - Each game starts at its load address; a game that needs another start address does not start.
 
 ## On-screen keyboard
@@ -233,7 +323,7 @@ python -B scripts/package.py --version <version> --date <YYYY-MM-DD>
 - Prerequisites (versions, sources, environment variables: [AGENTS.md, section 3](AGENTS.md#3-prerequisites)): Quartus Prime Lite 25.1std with Cyclone V device support (no licence file needed; the bitstream only); Icarus Verilog 13.0 (the simulations and the Python tests); Python 3.14 (standard library only); PowerShell 7; git; mtools (the FAT16 card and its tests). Tools on PATH need no environment variables.
 - The bitstream builds on Windows only; the simulations, the Python tests and the package dry run (`pwsh -File scripts/ci/package-dry-run.ps1`) also on Linux, as in CI.
 - A GitHub source zip has no submodule (`cores/karabas-go-core-rk86`): clone with `--recursive`. `fetch_assets.py` needs the network once (GitHub).
-- The card images are built separately ([J6 card menu](#j6-card-menu), [FAT16 card](#fat16-card)); the FAT16 card and its tests need mtools (`MTOOLS_DIR` or PATH).
+- The package holds no ROM disk image. The game disks (`python -B scripts/romdisk/build_romdisks.py`) and the card images ([J6 card menu](#j6-card-menu), [FAT16 card](#fat16-card)) are built separately; the FAT16 card and its tests need mtools (`MTOOLS_DIR` or PATH).
 
 Design, build and tests: [fpga/README.md](fpga/README.md). Instructions for coding agents: [AGENTS.md](AGENTS.md).
 
