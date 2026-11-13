@@ -2,14 +2,18 @@
 """Builds the SD package of the core from a Quartus build (spec 7).
 
 Usage: python -B scripts/package.py --version 0.5.0 --date YYYY-MM-DD [--build build/quartus]
-       [--output build/package]
+       [--assets build/assets] [--output build/package]
+       python -B scripts/package.py --readme
 Checks the definitions against the openFPGA limits, bit-reverses the RBF (round trip checked),
 checks every shipped asset against package/assets.json, draws the icon and platform image,
 writes Cores/, Assets/ and Platforms/ and the zip BarabashkaD.Radio86RK_<version>_<date>.zip, then checks the zip as the openFPGA library's updater reads it.
-The Assets folder also gets the 5 game disks romdisk-1.bin to romdisk-5.bin (64 KB each), built from the core's
-pk/ folder by scripts/romdisk/build_romdisks.py, next to Kiselev's romdisk.bin, and romdisks.txt
-(package/romdisks.txt: how to run and change the ROM disk, the programs of romdisk.bin, the games
-of each game disk). info.txt (shown on the Pocket) also lists the games by menu key and name.
+The package holds no ROM disk image: the assets.json entries marked "package": false (Kiselev's
+romdisk.bin and its licence) are fetched and tested, never packaged; the game disks and the card
+images are separate downloads on the release page. The Assets folder gets monitor.bin, font.bin
+and ROMDISKS.txt (template package/ROMDISKS.txt: which images exist, where to get them, where they
+go, how to load and run them, the games of each game disk, built from the core's pk/ folder by
+scripts/romdisk/build_romdisks.py). info.txt (shown on the Pocket) also lists the games by menu
+key and name. --readme prints README's "ROM disk images" section, the same template in Markdown.
 """
 import argparse
 import datetime
@@ -238,32 +242,72 @@ def check_library_zip(zip_path):
 
 GUIDE_MARKER = '@GAME_DISKS@'
 ROMDISK_MAX = 65536                 # a game disk's size at most (the 64 KB wiring), not data.json's size_maximum
+ROMDISKS_TEMPLATE = os.path.join(ROOT, 'package', 'ROMDISKS.txt')
+README_BEGIN = '<!-- romdisk images: python -B scripts/package.py --readme -->'
+README_END = '<!-- end of romdisk images -->'
+README_GAMES = 'The games of each disk, by menu key: [Game disks](#game-disks).'
+KISELEV_RAW = re.compile(r'https://raw\.githubusercontent\.com/skiselev/radio-86rk/([0-9a-f]{40})/Software/rom_disk\.bin')
+KISELEV_PAGE = 'https://github.com/skiselev/radio-86rk/blob/%s/Software/rom_disk.bin'
 
 
-def romdisk_guide(template, disks):
-    """romdisks.txt of the Assets folder: the template with its marker line replaced by the game
-    disks (the romdisks.json list of build_romdisks.py)."""
-    if template.count(GUIDE_MARKER) != 1:
-        raise ValueError('package/romdisks.txt needs exactly one %s line' % GUIDE_MARKER)
+def kiselev_romdisk():
+    """romdisk.bin of package/assets.json (Kiselev's file, not in the package): its download URL,
+    its page at the same commit, size and SHA256, for ROMDISKS.txt and the README."""
+    with open(os.path.join(ROOT, 'package', 'assets.json'), encoding='utf-8') as f:
+        asset = next(a for a in json.load(f)['assets'] if a['name'] == 'romdisk.bin')
+    m = KISELEV_RAW.fullmatch(asset['source'])
+    if not m:
+        raise ValueError('package/assets.json: romdisk.bin source is not a pinned raw URL of skiselev/radio-86rk')
+    return {'@ROMDISK_URL@': asset['source'], '@ROMDISK_PAGE@': KISELEV_PAGE % m.group(1),
+            '@ROMDISK_SIZE@': str(asset['size']), '@ROMDISK_SHA256@': asset['sha256']}
+
+
+def fill_romdisks(template, games):
+    """The ROMDISKS.txt template (Markdown-like) with Kiselev's file from assets.json and its
+    marker line replaced by games."""
+    if template.count(GUIDE_MARKER) != 1 or GUIDE_MARKER + '\n' not in template:
+        raise ValueError('package/ROMDISKS.txt needs exactly one %s line' % GUIDE_MARKER)
+    for key, value in kiselev_romdisk().items():
+        template = template.replace(key, value)
+    left = re.findall(r'@[A-Z0-9_]+@', template.replace(GUIDE_MARKER, ''))
+    if left:
+        raise ValueError('package/ROMDISKS.txt: unknown placeholder %s' % left[0])
+    return template.replace(GUIDE_MARKER, games)
+
+
+def romdisks_text(template, disks):
+    """ROMDISKS.txt of the Assets folder, plain text (UTF-8, the game titles in Russian): the
+    template without its Markdown (backticks dropped, '## ' and '### ' headings underlined) and
+    its marker line replaced by the games of the game disks (the romdisks.json list of
+    build_romdisks.py)."""
+    lines = []
+    for line in template.replace('`', '').split('\n'):
+        for prefix, rule in (('### ', '-'), ('## ', '=')):
+            if line.startswith(prefix):
+                line = line[len(prefix):] + '\n' + rule * len(line[len(prefix):])
+                break
+        lines.append(line)
     games = sum(len(d['entries']) for d in disks)
-    lines = ['Game disks: the %d games of the Karabas core on %d disks' % (games, len(disks)),
-             'Load one from the Pocket menu as above, then type R0,1FF,0 and G0: its menu lists the',
-             'games with the keys 0 to 9, then A to Y; Z clears the memory 0000-73FF. To choose',
-             'another game, use Core Settings > Reset, then R0,1FF,0 and G0 again; G7416 alone shows',
-             'the menu again too, unless the game has overwritten the loader at 7400-75FF.',
-             'Each game disk is 64 KB: it needs this core (0.8.2 or later); an older core refuses',
-             'the file, and the ROM disk then reads FF.']
+    listing = ['The %d games of the Karabas core on %d disks, by menu key:' % (games, len(disks))]
     for d in disks:
-        lines += ['', '%s (disk %d)' % (d['file'], d['disk'])]
+        listing += ['', '%s (disk %d)' % (d['file'], d['disk'])]
         for e in d['entries']:
             title = e.get('title', '')
-            lines.append(('  %s  %-12s %s' % (e['key'], e['name'], title)).rstrip())
-    return template.replace(GUIDE_MARKER, '\n'.join(lines))
+            listing.append(('  %s  %-12s %s' % (e['key'], e['name'], title)).rstrip())
+    return fill_romdisks('\n'.join(lines), '\n'.join(listing))
+
+
+def readme_section():
+    """README's "ROM disk images" section (between README_BEGIN and README_END): the same
+    template as ROMDISKS.txt in its Markdown form; the games point to README's game-disk lists
+    (build_romdisks.py --readme)."""
+    with open(ROMDISKS_TEMPLATE, encoding='utf-8') as f:
+        return fill_romdisks(f.read(), README_GAMES).strip('\n')
 
 
 def info_with_games(info, disks):
     """info.txt (shown on the Pocket) with the menu keys and names of the game disks before its
-    Credits line; ASCII only (the titles, in Russian, stay in romdisks.txt)."""
+    Credits line; ASCII only (the titles, in Russian, stay in ROMDISKS.txt)."""
     lines = info.split('\n')
     credits = [i for i, line in enumerate(lines) if line.startswith('Credits:')]
     if len(credits) != 1:
@@ -307,14 +351,21 @@ def asset_bytes(asset, assets_dir):
     return data
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--version', required=True)
-    ap.add_argument('--date', required=True)
+    ap.add_argument('--version')
+    ap.add_argument('--date')
     ap.add_argument('--build', default=os.path.join(ROOT, 'build', 'quartus'))
     ap.add_argument('--assets', default=os.path.join(ROOT, 'build', 'assets'))
     ap.add_argument('--output', default=os.path.join(ROOT, 'build', 'package'))
-    a = ap.parse_args()
+    ap.add_argument('--readme', action='store_true',
+                    help="print README's ROM disk images section and exit")
+    a = ap.parse_args(argv)
+    if a.readme:
+        sys.stdout.buffer.write((readme_section() + '\n').encode('utf-8'))
+        return 0
+    if not a.version or not a.date:
+        ap.error('--version and --date are required')
     pkg = os.path.join(ROOT, 'package')
     errors = check_definitions(pkg)
     if errors:
@@ -348,21 +399,19 @@ def main():
     shutil.copyfile(os.path.join(pkg, 'platform', PLATFORM + '.json'), os.path.join(sd, 'Platforms', PLATFORM + '.json'))
     table = json.load(open(os.path.join(pkg, 'assets.json'), encoding='utf-8'))
     for asset in table['assets']:
-        open(os.path.join(asset_dir, asset['name']), 'wb').write(asset_bytes(asset, a.assets))
-    disks, disk_files = game_disks(PK_DIR, {x['name'] for x in table['assets']})
-    for name, data in disk_files.items():
-        open(os.path.join(asset_dir, name), 'wb').write(data)
+        if asset.get('package', True):          # "package": false: fetched and tested, never packaged
+            open(os.path.join(asset_dir, asset['name']), 'wb').write(asset_bytes(asset, a.assets))
+    disks, _ = game_disks(PK_DIR, {x['name'] for x in table['assets']})   # their game lists only
     with open(os.path.join(pkg, 'core', 'info.txt'), encoding='utf-8') as f:
         info = info_with_games(f.read(), disks)
     with open(os.path.join(core_dir, 'info.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(info)
-    with open(os.path.join(pkg, 'romdisks.txt'), encoding='utf-8') as f:
-        guide = romdisk_guide(f.read(), disks)
-    with open(os.path.join(asset_dir, 'romdisks.txt'), 'w', encoding='utf-8', newline='\n') as f:
+    with open(ROMDISKS_TEMPLATE, encoding='utf-8') as f:
+        guide = romdisks_text(f.read(), disks)
+    with open(os.path.join(asset_dir, 'ROMDISKS.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(guide)
     shutil.copyfile(os.path.join(ROOT, 'LICENSE'), os.path.join(core_dir, 'LICENSE.txt'))
     shutil.copyfile(os.path.join(CORE_SRC, 'LICENSE.TXT'), os.path.join(core_dir, 'LICENSE-karabas-core.txt'))
-    shutil.copyfile(os.path.join(a.assets, 'romdisk-LICENSE.txt'), os.path.join(core_dir, 'LICENSE-romdisk.txt'))
     apf = open(os.path.join(ROOT, 'fpga', 'apf', 'apf_top.v'), encoding='utf-8', errors='replace').read()
     with open(os.path.join(core_dir, 'APF-NOTICE.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(apf[:apf.index('module apf_top')])
@@ -389,7 +438,13 @@ def main():
             print('ERROR: %s' % e)
         os.remove(zip_path)
         return 1
-    print('PASS package: %s (%s)' % (os.path.relpath(zip_path, ROOT), hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()))
+    try:
+        shown = os.path.relpath(zip_path, ROOT)
+    except ValueError:                          # Windows: --output on another drive
+        shown = '..'
+    if shown.startswith('..'):                  # outside the repository: the name only, no local path
+        shown = os.path.basename(zip_path)
+    print('PASS package: %s (%s)' % (shown, hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()))
     return 0
 
 

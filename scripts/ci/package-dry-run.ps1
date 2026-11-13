@@ -2,7 +2,8 @@
 # 256-byte stand-in ap_core.rbf, so the definitions, the assets, the zip layout and the openFPGA
 # library rules are checked without a Quartus build. The zip holds the stand-in bitstream: never
 # upload or publish it. Work folder: <RUNNER_TEMP>/package-dry-run in CI, else
-# build/ci-local/tmp/package-dry-run (emptied first). Needs build/assets (scripts/fetch_assets.py).
+# build/ci-local/tmp/package-dry-run (emptied first). Needs the core submodule; not build/assets
+# (the package holds no ROM disk image, ROMDISKS.txt says where to get them).
 # Usage, from any directory: pwsh -File scripts/ci/package-dry-run.ps1
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path

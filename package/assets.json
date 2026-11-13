@@ -25,14 +25,16 @@
       "crc32": "4B1C86D6",
       "sha256": "2e870be7e9820ae34ac62e60479bb5d14c07437a89609cbe0fdfb450ce631904",
       "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/rom_disk.bin",
-      "licence": "skiselev/radio-86rk, GPL-3.0; provenance of the program binaries not established; public distribution decided at release (D6)"
+      "licence": "skiselev/radio-86rk, GPL-3.0; provenance of the program binaries not established; public distribution decided at release (D6)",
+      "package": false
     }
   ],
   "licences": [
     {
       "name": "romdisk-LICENSE.txt",
       "source": "https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/LICENSE",
-      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "package": false
     }
   ],
   "sources": [
