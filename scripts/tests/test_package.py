@@ -1,11 +1,15 @@
 import contextlib
+import gc
+import hashlib
 import io
 import json
 import os
 import re
 import sys
 import tempfile
+import time
 import unittest
+import warnings
 import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -18,6 +22,8 @@ class PackageTest(unittest.TestCase):
     def test_bit_reverse_round_trip(self):
         data = bytes(range(256))
         self.assertEqual(package.reverse_bits(package.reverse_bits(data)), data)
+        self.assertEqual(package.reverse_bits(b'\x01\x80\x0f\xa0'), b'\x80\x01\xf0\x05')
+        self.assertEqual(package.reverse_bits(bytearray(b'\x02')), b'\x40')
         self.assertEqual(package.reverse_bits(b'\x01\x02\x96\x80'), b'\x80\x40\x69\x01')
 
     def test_graphic_layout(self):
@@ -165,7 +171,7 @@ class PackageTest(unittest.TestCase):
         disks = [{'disk': 1, 'file': 'romdisk-1.bin', 'entries': [
                      {'key': '0', 'name': 'CHESS', 'title': 'Шахматы'}, {'key': '1', 'name': 'GLASS2'}]},
                  {'disk': 2, 'file': 'romdisk-2.bin', 'entries': [{'key': 'A', 'name': 'ZMEI', 'title': ''}]}]
-        text = package.romdisks_text(self.template(), disks)
+        text = package.romdisks_text(self.template(), disks, '1.2.3')
         for part in ('R0,1FF,0', 'G0', 'romdisk.bin', '6 TETRIS', 'Core Settings > Reset',
                      'Core Settings > Cold boot'):
             self.assertIn(part, text)
@@ -181,16 +187,16 @@ class PackageTest(unittest.TestCase):
 
     def test_romdisks_text_needs_one_marker(self):
         with self.assertRaises(ValueError):
-            package.romdisks_text('no marker\n', [])
+            package.romdisks_text('no marker\n', [], '1.2.3')
         with self.assertRaises(ValueError):
-            package.romdisks_text('%s\n%s\n' % (package.GUIDE_MARKER, package.GUIDE_MARKER), [])
+            package.romdisks_text('%s\n%s\n' % (package.GUIDE_MARKER, package.GUIDE_MARKER), [], '1.2.3')
 
     def test_romdisks_text_links_kiselevs_file_from_assets_json(self):
         with open(os.path.join(ROOT, 'package', 'assets.json'), encoding='utf-8') as f:
             asset = next(a for a in json.load(f)['assets'] if a['name'] == 'romdisk.bin')
         commit = re.fullmatch(r'https://raw\.githubusercontent\.com/skiselev/radio-86rk/([0-9a-f]{40})/'
                               r'Software/rom_disk\.bin', asset['source']).group(1)
-        for text in (package.romdisks_text(self.template(), []), package.readme_section()):
+        for text in (package.romdisks_text(self.template(), [], '1.2.3'), package.readme_section()):
             self.assertIn(asset['source'], text)
             self.assertIn('https://github.com/skiselev/radio-86rk/blob/%s/Software/rom_disk.bin' % commit, text)
             self.assertIn(asset['sha256'], text)
@@ -198,12 +204,33 @@ class PackageTest(unittest.TestCase):
             self.assertRegex(text, r'save it as\s+`?romdisk\.bin')
 
     def test_romdisks_text_says_where_to_get_and_put_each_image(self):
-        for text in (package.romdisks_text(self.template(), []), package.readme_section()):
+        for text in (package.romdisks_text(self.template(), [], '1.2.3'), package.readme_section()):
             for part in ('card.bin', 'fatcard.bin', 'romdisk-1.bin', 'romdisk-5.bin', 'romdisk-LICENSE.txt',
                          'SHA256SUMS.txt', 'https://github.com/BarabashkaD/radio86-rk-pocket/releases',
                          'Assets/radio86rk/BarabashkaD.Radio86RK/', '.bin', 'R0,1FF,0', 'G0',
-                         'Cold boot', '0.8.2', 'romdisks.txt', 'reads FF'):
+                         'Cold boot', '0.8.2', 'romdisks.txt', 'reads FF',
+                         'the SHA256 of every other file attached to the release'):
                 self.assertIn(part, text)
+            # no image: the machine is expected to hang after G0 (design, not a hardware result)
+            self.assertRegex(' '.join(text.split()), r'expected to hang[^.]*Core Settings > Reset')
+
+    def test_romdisks_text_links_the_release_of_its_version(self):
+        text = package.romdisks_text(self.template(), [], '1.2.3')
+        self.assertIn('https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v1.2.3', text)
+        self.assertNotIn('@RELEASE_URL@', text)
+        readme = package.readme_section()
+        self.assertIn('(https://github.com/BarabashkaD/radio86-rk-pocket/releases):', readme)
+        self.assertNotIn('/releases/tag/', readme)
+        with open(os.path.join(ROOT, 'package', 'ROMDISKS.txt'), encoding='utf-8') as f:
+            self.assertEqual(f.read().count('@RELEASE_URL@'), 1)
+        self.assertEqual(package.release_url('1.2.3'),
+                         'https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v1.2.3')
+
+    def test_info_says_what_happens_without_an_image(self):
+        with open(os.path.join(ROOT, 'package', 'core', 'info.txt'), encoding='utf-8') as f:
+            info = f.read()
+        self.assertRegex(info, r'Without an image the ROM disk reads FF[^\n]*expected to hang[^\n]*'
+                               r'Core Settings > Reset')
 
     def test_readme_romdisk_section_is_current(self):
         with open(os.path.join(ROOT, 'README.md'), encoding='utf-8') as f:
@@ -266,26 +293,35 @@ class BuiltPackageTest(unittest.TestCase):
     CORES = 'Cores/%s/' % package.CORE_ID
 
     @classmethod
+    def package(cls, name):
+        """package.main into <tmp>/<name>; returns (zip path, ResourceWarnings seen)."""
+        out = os.path.join(cls.tmp.name, name)
+        log = io.StringIO()
+        with warnings.catch_warnings(record=True) as seen, contextlib.redirect_stdout(log):
+            warnings.simplefilter('always', ResourceWarning)
+            rc = package.main(['--version', '0.0.0-test', '--date', '2000-01-01', '--build', cls.build,
+                               '--assets', cls.assets, '--output', out])
+            gc.collect()
+        if rc != 0:
+            raise AssertionError('package.py failed:\n' + log.getvalue())
+        return (os.path.join(out, '%s_0.0.0-test_2000-01-01.zip' % package.CORE_ID),
+                [w for w in seen if issubclass(w.category, ResourceWarning)])
+
+    @classmethod
     def setUpClass(cls):
         if not os.path.isdir(package.PK_DIR) or not os.path.isfile(os.path.join(package.CORE_SRC, 'roms', 'BIOS.BIN')):
             raise unittest.SkipTest('core submodule not checked out')
         cls.tmp = tempfile.TemporaryDirectory()
-        build = os.path.join(cls.tmp.name, 'stand-in')
-        os.makedirs(os.path.join(build, 'output_files'))
-        with open(os.path.join(build, 'output_files', 'ap_core.rbf'), 'wb') as f:
+        cls.build = os.path.join(cls.tmp.name, 'stand-in')
+        os.makedirs(os.path.join(cls.build, 'output_files'))
+        with open(os.path.join(cls.build, 'output_files', 'ap_core.rbf'), 'wb') as f:
             f.write(bytes(range(256)))
-        assets = os.path.join(cls.tmp.name, 'assets')
-        os.makedirs(assets)
-        out = os.path.join(cls.tmp.name, 'package')
-        log = io.StringIO()
-        with contextlib.redirect_stdout(log):
-            rc = package.main(['--version', '0.0.0-test', '--date', '2000-01-01', '--build', build,
-                               '--assets', assets, '--output', out])
-        if rc != 0:
-            raise AssertionError('package.py failed:\n' + log.getvalue())
-        cls.zip_path = os.path.join(out, '%s_0.0.0-test_2000-01-01.zip' % package.CORE_ID)
+        cls.assets = os.path.join(cls.tmp.name, 'assets')
+        os.makedirs(cls.assets)
+        cls.zip_path, cls.resource_warnings = cls.package('package')
         with zipfile.ZipFile(cls.zip_path) as z:
             cls.files = {n: z.read(n) for n in z.namelist()}
+            cls.infos = z.infolist()
 
     @classmethod
     def tearDownClass(cls):
@@ -304,6 +340,22 @@ class BuiltPackageTest(unittest.TestCase):
 
     def test_library_checks_pass(self):
         self.assertEqual(package.check_library_zip(self.zip_path), [])
+
+    def test_every_file_closed(self):
+        self.assertEqual([str(w.message) for w in self.resource_warnings], [])
+
+    def test_zip_is_reproducible(self):
+        # the same inputs give the same bytes: entries sorted, dated from --date, fixed attributes
+        time.sleep(2.1)                                 # a zip time from the clock would differ now
+        again, _ = self.package('again')
+        with open(self.zip_path, 'rb') as a, open(again, 'rb') as b:
+            self.assertEqual(hashlib.sha256(a.read()).hexdigest(), hashlib.sha256(b.read()).hexdigest())
+        names = [i.filename for i in self.infos]
+        self.assertEqual(names, sorted(names))
+        for i in self.infos:
+            self.assertEqual(i.date_time, (2000, 1, 1, 0, 0, 0), i.filename)
+            self.assertEqual((i.create_system, i.external_attr), (3, 0o100644 << 16), i.filename)
+            self.assertEqual(i.compress_type, zipfile.ZIP_DEFLATED, i.filename)
 
     def test_romdisks_txt_lists_every_game_and_links_kiselevs_file(self):
         raw = self.files[self.ASSETS + 'ROMDISKS.txt']
@@ -324,7 +376,8 @@ class BuiltPackageTest(unittest.TestCase):
         with open(os.path.join(ROOT, 'package', 'assets.json'), encoding='utf-8') as f:
             asset = next(a for a in json.load(f)['assets'] if a['name'] == 'romdisk.bin')
         self.assertIn(asset['source'], text)
-        for part in ('card.bin', 'fatcard.bin', 'Assets/radio86rk/BarabashkaD.Radio86RK/'):
+        for part in ('card.bin', 'fatcard.bin', 'Assets/radio86rk/BarabashkaD.Radio86RK/',
+                     'https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.0.0-test'):
             self.assertIn(part, text)
 
     def test_info_txt_points_to_romdisks_txt(self):

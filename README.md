@@ -41,7 +41,7 @@ The package's `Assets/radio86rk/BarabashkaD.Radio86RK/` holds `monitor.bin` and 
 The ROM disk is a memory card on the ports of the Radio-86RK's second 8255 (the A000-BFFF block).
 The core package holds no ROM disk image: the images are separate downloads, pick the ones you
 want. Without an image the core starts as usual, but every ROM disk byte reads FF, so `R0,1FF,0`
-and `G0` find no menu.
+and `G0` find no menu: the machine is expected to hang, then use Core Settings > Reset.
 
 ### Where to get them
 
@@ -53,7 +53,7 @@ and `G0` find no menu.
   - `fatcard.bin`: a J6 bank card with a FAT16 file system (8 MB): 52 tape files and a file menu.
   - `romdisk-LICENSE.txt`: Sergey Kiselev's GPL-3.0 licence. `card.bin` holds his ROM disk,
     `fatcard.bin` four programs from it, and the game disks' menu loader is derived from his.
-  - `SHA256SUMS.txt`: the SHA256 of every file of the release.
+  - `SHA256SUMS.txt`: the SHA256 of every other file attached to the release.
 - Sergey Kiselev's ROM disk (ROM-DISK/32K V3.0-2020, GPL-3.0) is not on the release page. Download
   `rom_disk.bin` from his repository and save it as `romdisk.bin`:
   https://raw.githubusercontent.com/skiselev/radio-86rk/c5e9cb7950deacb87d65b59b0dfdf96159d4b98c/Software/rom_disk.bin

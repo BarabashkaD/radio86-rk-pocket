@@ -372,13 +372,30 @@ class Files(Tmp):
         image[root + 32 * 8:root + 32 * 9] = image[root:root + 32]    # behind the 00 entry at slot 7
         self.assertEqual([e['file'] for e in fatcard.directory(bytes(image))], ['GOOD.RKR', 'OVER.RKR', 'HIGH.RKR'])
 
-    def test_reproducible_on_one_machine(self):
+    def test_fixed_times_whatever_the_time_zone(self):
+        # mtools writes FAT times in local time: on Windows the label follows TZ and the files follow
+        # the system zone, on Linux both follow TZ. build_image writes the time fields itself, so the
+        # bytes are the same on every machine: 2000-01-01 12:00:00 (time 6000h, date 2821h).
+        fixed = b'\x00\x00\x60\x21\x28\x21\x28'          # 0D tenths, 0E-0F time, 10-11 date, 12-13 access
         images = []
-        for n in ('one.img', 'two.img'):
+        for n, tz in (('unset.img', None), ('utc.img', 'UTC0'), ('est.img', 'EST5EDT'), ('nz.img', 'NZST-12')):
+            env = {k: v for k, v in os.environ.items() if k != 'TZ'}
+            if tz:
+                env['TZ'] = tz
             path = os.path.join(self.tmp, n)
-            fatcard.build_image(path, [('A.RKR', tape.make_tape(0, b'a' * 600))], BOOT, MENU, LOADER)
+            with mock.patch.dict(os.environ, env, clear=True):
+                fatcard.build_image(path, [('A.RKR', tape.make_tape(0, b'a' * 600)), ('B.GAM', b'b' * 700)],
+                                    BOOT, MENU, LOADER)
             images.append(read(path))
-        self.assertEqual(images[0], images[1])
+            entries = raw_entries(images[-1])
+            self.assertEqual([e[:12] for _, e in entries],
+                             [b'RK86CARD   \x08', b'A       RKR\x20', b'B       GAM\x20'], tz)
+            for _, e in entries:
+                self.assertEqual(e[0x0D:0x14], fixed, (tz, e[:11]))
+                self.assertEqual(e[0x16:0x1A], b'\x00\x60\x21\x28', (tz, e[:11]))   # write time, date
+        for other in images[1:]:
+            self.assertEqual(other, images[0])
+        self.assertEqual((fatcard.FAT_TIME, fatcard.FAT_DATE), (0x6000, 0x2821))
 
 
 class Window(unittest.TestCase):
@@ -1338,7 +1355,7 @@ class MenuSynthetic(Tmp):
         r = m.key('Z')
         self.assertEqual(bytes(r.ram[0:0x6C00]), bytes(0x6C00))
 
-    def test_skipped_entries(self):
+    def test_entries_not_listed(self):
         # mcopy F1, a long name, F2, F3, mlabel, then mdel F2: a long-name set, an E5 slot and a label
         fatcard.format_image(self.img)
         fatcard.add_files(self.img, [('F1.RKR', raw_tape(0x0300, pattern(30, 1)))])
@@ -1389,7 +1406,7 @@ class MenuSynthetic(Tmp):
         m = self.machine(bytes(image))
         self.assertEqual(m.screen.lines(), expected_screen(entries, 0, 0))
 
-    def test_hidden_system_directory_skipped(self):
+    def test_hidden_system_directory_not_listed(self):
         files = [('F%d.RKR' % i, raw_tape(0x0300 + 0x100 * i, pattern(20, i))) for i in range(5)]
         image = bytearray(menu_image(self.img, files))
         root = fatcard.bpb(bytes(image))['root_start'] * 512

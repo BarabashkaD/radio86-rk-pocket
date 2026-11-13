@@ -27,9 +27,11 @@ error), else from PATH. Every call runs in the image's directory with relative n
 on paths with non-ASCII characters and reads a drive-letter mcopy target as a DOS drive), stdin closed
 (mcopy waits for an answer on a name clash) and a timeout.
 
-Reproducible on one machine only: the file times come from FIXED_MTIME (mcopy -m) and the label
-time from SOURCE_DATE_EPOCH, but FAT times are local time, so the bytes follow the time zone. No
-test or document records a hash of an image.
+Reproducible on every machine: mtools writes FAT times in local time (on Windows the label follows
+TZ and the files the system zone; on Linux both follow TZ), so build_image overwrites the time and
+date fields of the label and of every file with FAT_TIME and FAT_DATE (2000-01-01 12:00:00,
+fix_times). mtools still gets FIXED_MTIME (mcopy -m), SOURCE_DATE_EPOCH and TZ=UTC0. No test or
+document records a hash of an image.
 
 Listing rules (directory, read_file, the 8080 menu): the root directory up to the first entry whose
 name starts with 00; E5 (deleted), attribute 0F (long name) and attribute bits 1E (hidden, system,
@@ -59,6 +61,8 @@ MFORMAT_ARGS = ['-C', '-T', '16384', '-h', '1', '-s', '32', '-R', '128', '-d', '
 LAYOUT = {'bytes_per_sector': 512, 'sectors_per_cluster': 1, 'reserved': 128, 'fats': 1, 'root_entries': 512,
           'total_sectors': 16384, 'sectors_per_fat': 64}
 FIXED_MTIME = 946728000          # 2000-01-01 12:00 UTC: a date FAT can hold, far from 1980 and 2107
+FAT_TIME = 12 << 11              # 12:00:00, the FAT time of FIXED_MTIME (6000h)
+FAT_DATE = (2000 - 1980) << 9 | 1 << 5 | 1   # 2000-01-01 (2821h)
 MENU_SECTOR, MENU_MAX = 1, 2048  # sectors 1-4
 LOADER_SECTOR, LOADER_MAX = 5, 512
 BOOT_SIZE = 0x1FB                # bytes 03-1FD of sector 0; only 03-05 and 3E-1FD are written
@@ -105,7 +109,7 @@ def run_mtools(tool, image, *args, timeout=60):
     """Runs `tool -i <image basename> args` in the image's directory; returns stdout."""
     image = os.path.abspath(image)
     cmd = [mtools(tool), '-i', os.path.basename(image)] + list(args)
-    env = dict(os.environ, SOURCE_DATE_EPOCH=str(FIXED_MTIME))
+    env = dict(os.environ, SOURCE_DATE_EPOCH=str(FIXED_MTIME), TZ='UTC0')
     try:
         r = subprocess.run(cmd, cwd=os.path.dirname(image), env=env, stdin=subprocess.DEVNULL,
                            capture_output=True, timeout=timeout)
@@ -231,6 +235,29 @@ def add_files(path, files):
         # costs about 0.4 s on an 8 MB image)
         run_mtools('mcopy', path, '-D', 'o', '-m', *[os.path.join(sub, n) for n in names], '::',
                    timeout=60 + len(names))
+
+
+def fix_times(path):
+    """Writes FAT_TIME and FAT_DATE into every root entry up to the first 00 entry except deleted (E5)
+    and long-name (attribute 0F) ones, so the label and every file: creation tenths (0D) 0, creation
+    time and date (0E-11), access date (12-13), write time and date (16-19)."""
+    image = _read(path)
+    p = bpb(image)
+    base = p['root_start'] * p['bytes_per_sector']
+    times = bytes([0]) + struct.pack('<HHH', FAT_TIME, FAT_DATE, FAT_DATE)
+    write = struct.pack('<HH', FAT_TIME, FAT_DATE)
+    with open(path, 'r+b') as f:
+        for slot in range(p['root_entries']):
+            at = base + 32 * slot
+            e = image[at:at + 32]
+            if e[0] == 0:
+                break
+            if e[0] == 0xE5 or e[11] == 0x0F:
+                continue
+            f.seek(at + 0x0D)
+            f.write(times)
+            f.seek(at + 0x16)
+            f.write(write)
 
 
 def install_bank0(path, boot, menu, loader):
@@ -466,11 +493,12 @@ def card_files(pk_dir, romdisk):
 
 
 def build_image(path, files, boot, menu, loader, label='RK86CARD'):
-    """format_image, label_image, add_files, install_bank0 (last), then the layout check; returns
-    directory() of the result."""
+    """format_image, label_image, add_files, fix_times, install_bank0 (last), then the layout check;
+    returns directory() of the result."""
     format_image(path)
     label_image(path, label)
     add_files(path, files)
+    fix_times(path)
     install_bank0(path, boot, menu, loader)
     image = _read(path)
     problems = layout_problems(image)

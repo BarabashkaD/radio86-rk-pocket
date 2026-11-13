@@ -1,6 +1,10 @@
 """Tests of the J6 bank card model (scripts/romdisk/card_model.py) and its use in the 8080 emulator."""
+import contextlib
+import io
+import json
 import os
 import sys
+import tempfile
 import unittest
 import zlib
 
@@ -348,6 +352,37 @@ class CardMenu(unittest.TestCase):
             self.assertEqual(r2.pc, 0x1000, key)
             self.assertEqual(bytes(r2.ram[0x1000:0x1010]), d[0x200:0x210], key)
             self.assertEqual(r2.copies, [(0x200, 0x20F, 0x1000)], key)
+
+    def test_build_is_what_main_writes(self):
+        disks = [games_disk(i)[1] for i in range(2)] + [b'\x11' * 1000]
+        files = ['romdisk-1.bin', 'romdisk-2.bin', 'romdisk.bin']
+        image, meta = card.build(disks, files)
+        self.assertEqual(image, card.card_image(card.assemble_menu(card.DEFAULT_TITLE,
+                                                                   ['GAMES 1', 'GAMES 2', 'KISELEV'])[0], disks))
+        self.assertEqual(meta['title'], card.DEFAULT_TITLE)
+        self.assertEqual([(b['bank'], b['key'], b['name'], b['file'], b['size']) for b in meta['banks']],
+                         [(1, '0', 'GAMES 1', 'romdisk-1.bin', 65536), (2, '1', 'GAMES 2', 'romdisk-2.bin', 65536),
+                          (3, '2', 'KISELEV', 'romdisk.bin', 1000)])
+        self.assertEqual(meta['keywait'], card.assemble_menu(card.DEFAULT_TITLE, ['GAMES 1', 'GAMES 2', 'KISELEV'])[1]['KEYWAIT'])
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, data in zip(files, disks):
+                paths.append(os.path.join(tmp, name))
+                with open(paths[-1], 'wb') as f:
+                    f.write(data)
+            out = os.path.join(tmp, 'out')
+            with contextlib.redirect_stdout(io.StringIO()):
+                card.main(['--out', out] + paths)
+            with open(os.path.join(out, 'card.bin'), 'rb') as f:
+                self.assertEqual(f.read(), image)
+            with open(os.path.join(out, 'card.json'), encoding='utf-8') as f:
+                self.assertEqual(json.load(f), meta)
+            with contextlib.redirect_stdout(io.StringIO()):
+                card.main(['--out', out, '--title', 'MY CARD', '--name', 'A', '--name', 'B', '--name', 'C'] + paths)
+            with open(os.path.join(out, 'card.bin'), 'rb') as f:
+                self.assertEqual(f.read(), card.build(disks, files, names=['A', 'B', 'C'], title='MY CARD')[0])
+        with self.assertRaises(ValueError):
+            card.build(disks, files[:2])
 
     def test_bad_key_shows_menu_again(self):
         disks = [games_disk(i)[1] for i in range(3)]
