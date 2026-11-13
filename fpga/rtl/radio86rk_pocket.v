@@ -19,8 +19,8 @@ module radio86rk_pocket(
     input  wire        monitor_we,        // pocket_slot_loader: a monitor byte at byte_a[10:0]
     input  wire        font_we,           // a font byte at byte_a[9:0]
     input  wire        romdisk_loaded,    // pocket_slot_loader: a ROM disk image was accepted
-    input  wire        romdisk_64k,       // the ROM disk image is above 32 KB: the 64 KB wiring
-    input  wire        romdisk_card,      // the ROM disk image is above 64 KB: the 8 MB card wiring
+    input  wire        romdisk_64k,       // the ROM disk image is above 32 KB: a 64 KB ROM
+    input  wire        romdisk_card,      // the ROM disk image is above 64 KB: the J6 bank card
     output wire [22:0] romdisk_address,   // the ROM disk byte address A22-A0, to pocket_psram
     input  wire  [7:0] romdisk_data,      // its byte from pocket_psram
     input  wire [15:0] byte_a,

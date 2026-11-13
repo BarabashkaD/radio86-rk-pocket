@@ -3,6 +3,14 @@
 Stubs: F818 print string at HL, F803 get a key, FA68 copy ROM disk HL..DE to RAM at BC. Each stub fills the
 16 bytes below its return address with A5, as deep as the real monitor's calls push (PRINT via F922, FCBA,
 FE01, FE72: 18 bytes with the return address).
+
+run_menu: the ROM disk menus (its stubs set only HL and BC after FA68 and A after F803).
+run_until: runs until stop(pc) is true, with stubs closer to the monitor (BIOS.BIN): F818 returns A = 0,
+HL = the 0 byte, C = the last character printed, models CLS (1Fh) as zeroing 76D0-7FF4, and refuses
+(EmuError) when the monitor's variables 7600-765F changed since the run started; FA68 returns A = E,
+Z set, HL = DE, BC + count, and refuses a request of 65536 bytes (DE = HL - 1); any other address in
+F800-FFFF reached without a stop is EmuError (an unmodelled monitor routine).
+Screen: the monitor's 64 x 25 text screen, replaying run_until's print events (the menu tests).
 """
 
 from card_model import fa68_copy
@@ -22,8 +30,9 @@ class WaitKey(Exception):
 
 
 class Result:
-    def __init__(self, pc, ram, printed, menus, copies):
+    def __init__(self, pc, ram, printed, menus, copies, sp=None, events=None, waiting=False, min_sp=None):
         self.pc, self.ram, self.printed, self.menus, self.copies = pc, ram, printed, menus, copies
+        self.sp, self.events, self.waiting, self.min_sp = sp, events, waiting, min_sp
 
 
 S, Z, CY = 0x80, 0x40, 0x01
@@ -197,6 +206,12 @@ class Cpu:
             self.r[7] = self.m[self.fetch16()]
         elif op == 0x32:
             self.m[self.fetch16()] = self.r[7]
+        elif op == 0x2A:  # LHLD
+            a = self.fetch16()
+            self.r[5], self.r[4] = self.m[a], self.m[(a + 1) & 0xFFFF]
+        elif op == 0x22:  # SHLD
+            a = self.fetch16()
+            self.m[a], self.m[(a + 1) & 0xFFFF] = self.r[5], self.r[4]
         else:
             raise EmuError('opcode %02X at %04X' % (op, at))
 
@@ -280,3 +295,149 @@ def run_menu(rom, keys, max_steps=5_000_000, ram=None, start=0, card=None):
             return Result(pc, ram, b''.join(printed), menus, copies)
         cpu.step()
     raise EmuError('too many steps')
+
+
+MONITOR_VARS = (0x7600, 0x7660)   # cleared by the cold start (F841-F849): the monitor's variables
+CLS_AREA = (0x76D0, 0x7FF5)       # what the monitor's CLS (1Fh) zeroes
+
+
+def run_until(ram, start, keys, card, stop, max_steps=5_000_000):
+    """Runs from start with SP 76CF (as the monitor's G) until stop(pc) is true; stop is checked at every
+    instruction boundary before a stub runs, so the instruction at the stop address never runs. Returns a
+    Result with pc, sp, min_sp, ram, printed, events (('print', bytes), ('copy', hl, de, bc) in order),
+    copies and waiting (True when F803 finds no key left). EmuError after max_steps. With card (a
+    card_model.CardPpi), A000-BFFF is the card's ports and FA68 reads the card; without, FA68 is an error."""
+    ram = bytearray(ram)
+    if card is not None:
+        ram = CardRam(ram)
+        ram.card = card
+    cpu = Cpu(ram)
+    cpu.sp = 0x76CF
+    cpu.pc = start
+    keys = [ord(k) for k in keys]
+    printed, copies, events = [], [], []
+    lo, hi = MONITOR_VARS
+    snap = bytearray(ram[lo:hi])
+    min_sp = cpu.sp
+
+    def result(waiting=False):
+        return Result(cpu.pc, ram, b''.join(printed), 0, copies, sp=cpu.sp, events=events, waiting=waiting,
+                      min_sp=min_sp)
+
+    for _ in range(max_steps):
+        pc = cpu.pc
+        min_sp = min(min_sp, cpu.sp)
+        if stop(pc):
+            return result()
+        if pc in STUBS:
+            if pc == PRINT and ram[lo:hi] != snap:
+                k = next(i for i in range(hi - lo) if ram[lo + i] != snap[i])
+                raise EmuError('the monitor variables 7600-765F changed (%04X) before the print at %04X'
+                               % (lo + k, cpu.m[cpu.sp] | cpu.m[(cpu.sp + 1) & 0xFFFF] << 8))
+            for k in range(1, STUB_STACK + 1):
+                a = (cpu.sp - k) & 0xFFFF
+                ram[a] = 0xA5
+                if lo <= a < hi:
+                    snap[a - lo] = 0xA5
+            if pc == PRINT:
+                hl = cpu.hl()
+                end = hl
+                while ram[end]:
+                    end += 1
+                text = bytes(ram[hl:end])
+                printed.append(text)
+                events.append(('print', text))
+                if 0x1F in text:
+                    ram[CLS_AREA[0]:CLS_AREA[1]] = bytes(CLS_AREA[1] - CLS_AREA[0])
+                cpu.r[7] = 0
+                if text:
+                    cpu.r[1] = text[-1]
+                cpu.set_pair(2, end)
+            elif pc == GETCH:
+                if not keys:
+                    return result(waiting=True)
+                cpu.r[7] = keys.pop(0)
+            else:
+                hl, de, bc = cpu.hl(), cpu.pair(1), cpu.pair(0)
+                if card is None:
+                    raise EmuError('FA68 without a card')
+                if de == (hl - 1) & 0xFFFF:
+                    raise EmuError('FA68 of 65536 bytes (HL %04X, DE %04X)' % (hl, de))
+                copies.append((hl, de, bc))
+                events.append(('copy', hl, de, bc))
+                data = fa68_copy(card, hl, de)
+                for k in range(len(data)):
+                    ram[(bc + k) & 0xFFFF] = data[k]
+                cpu.set_pair(2, de)
+                cpu.set_pair(0, bc + len(data))
+                cpu.r[7] = cpu.r[3]
+                cpu.f = 0x02 | Z   # the last CMP E of F990 with A = L = E
+            cpu.pc = cpu.pop()
+            continue
+        if pc >= 0xF800:
+            raise EmuError('monitor entry %04X is not modelled (only F803, F818, FA68)' % pc)
+        cpu.step()
+    raise EmuError('too many steps')
+
+
+class Screen:
+    """The monitor's text screen (64 x 25) as far as the card menu uses it, replaying F818 prints: the
+    monitor masks every byte with 7Fh; 1Fh clears and homes; CR goes to column 0; LF one line down;
+    ESC Y (1Bh, 'Y', 20h + row 0-24, 20h + column 0-63) places the cursor; any other byte below 20h
+    is not modelled (EmuError). A character advances the column and wraps after column 63. Anything
+    that would scroll (LF on the last line, a character in the bottom-right cell) is EmuError: the
+    menu's layout must never scroll."""
+
+    COLS, ROWS = 64, 25
+
+    def __init__(self):
+        self.esc = None
+        self.clear()
+
+    def clear(self):
+        self.cells = [[' '] * self.COLS for _ in range(self.ROWS)]
+        self.row = self.col = 0
+
+    def feed(self, data):
+        for b in data:
+            self.put(b & 0x7F)
+
+    def replay(self, events):
+        for e in events:
+            if e[0] == 'print':
+                self.feed(e[1])
+
+    def put(self, b):
+        if self.esc is not None:
+            self.esc.append(b)
+            if self.esc[0] != ord('Y'):
+                raise EmuError('ESC %02X: only ESC Y is modelled' % self.esc[0])
+            if len(self.esc) == 3:
+                row, col = self.esc[1] - 0x20, self.esc[2] - 0x20
+                self.esc = None
+                if not (0 <= row < self.ROWS and 0 <= col < self.COLS):
+                    raise EmuError('ESC Y to row %d, column %d' % (row, col))
+                self.row, self.col = row, col
+            return
+        if b == 0x1B:
+            self.esc = []
+        elif b == 0x1F:
+            self.clear()
+        elif b == 0x0D:
+            self.col = 0
+        elif b == 0x0A:
+            if self.row == self.ROWS - 1:
+                raise EmuError('LF on the last line scrolls the screen')
+            self.row += 1
+        elif b < 0x20:
+            raise EmuError('control code %02X is not modelled' % b)
+        else:
+            if self.row == self.ROWS - 1 and self.col == self.COLS - 1:
+                raise EmuError('a character in the bottom-right cell scrolls the screen')
+            self.cells[self.row][self.col] = chr(b)
+            self.col += 1
+            if self.col == self.COLS:
+                self.row, self.col = self.row + 1, 0
+
+    def lines(self):
+        return [''.join(r).rstrip() for r in self.cells]

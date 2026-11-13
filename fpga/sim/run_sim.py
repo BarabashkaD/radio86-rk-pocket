@@ -191,6 +191,44 @@ def card_plusargs():
     return ['+cart_size=%d' % os.path.getsize(card_image()), '+card_keywait=%d' % meta['keywait']]
 
 
+# the fatcard test's image: banks 0 and 1 (131072 bytes) of a FAT16 card with PITON.GAM only
+FATCARD_DIR = os.path.join(ROOT, 'build', 'fatcard')
+FATCARD_BUILD = 'python -B scripts/fatcard/fatcard.py --sim'
+FATCARD_HINT = ('run python -B scripts/fetch_assets.py, then %s (mtools: MTOOLS_DIR or PATH)' % FATCARD_BUILD)
+FATCARD_FILE = 'PITON.GAM'
+FATCARD_SIZE = 131072
+
+
+def fatcard_image():
+    path = os.path.join(FATCARD_DIR, 'card-sim.img')
+    if not os.path.exists(path):
+        raise ValueError('%s missing: %s' % (path, FATCARD_HINT))
+    return path
+
+
+def fatcard_plusargs():
+    """tb_system fatcard: +cart_size (card-sim.img), +fatcard_keywait (the FAT16 menu's key wait), +game_ram,
+    +game_rom, +game_len (PITON.GAM's payload: RAM start, image offset, length; card-sim.json)."""
+    path = os.path.join(FATCARD_DIR, 'card-sim.json')
+    if not os.path.exists(path):
+        raise ValueError('%s missing: %s' % (path, FATCARD_HINT))
+    with open(path, encoding='utf-8') as f:
+        meta = json.load(f)
+    keys = ('keywait', 'size', 'start', 'length', 'offset')
+    if not all(isinstance(meta.get(k), int) for k in keys) or meta.get('file') != FATCARD_FILE:
+        raise ValueError('%s: not %s with %s: %s' % (path, FATCARD_FILE, ', '.join(keys), FATCARD_HINT))
+    size = os.path.getsize(fatcard_image())
+    if meta['size'] != FATCARD_SIZE or size != FATCARD_SIZE:
+        raise ValueError('%s: size %d, card-sim.img %d bytes, expected %d: %s'
+                         % (path, meta['size'], size, FATCARD_SIZE, FATCARD_HINT))
+    if not 0x6C00 <= meta['keywait'] <= 0x71FF:
+        raise ValueError('%s: keywait %04X not in 6C00-71FF: %s' % (path, meta['keywait'], FATCARD_HINT))
+    if meta['length'] < 1 or meta['start'] + meta['length'] > 0x10000 or meta['offset'] + meta['length'] > size:
+        raise ValueError('%s: start, length, offset out of range: %s' % (path, FATCARD_HINT))
+    return ['+cart_size=%d' % size, '+fatcard_keywait=%d' % meta['keywait'], '+game_ram=%d' % meta['start'],
+            '+game_rom=%d' % meta['offset'], '+game_len=%d' % meta['length']]
+
+
 TESTS.update({
     'boot': system('boot', ('frame.hex', 'fpga/sim/golden/monitor-boot.hex'),
                    negatives=[('beeper_pc0_xor', 'beeper does not follow INTE')]),
@@ -212,6 +250,10 @@ TESTS.update({
     # selects bank 1 (disk 2) and starts its loader, its menu; Core Settings Reset keeps the bank, Cold boot
     # clears it
     'card': system('card', cart=card_image, extra=card_plusargs),
+    # the FAT16 card (FATCARD_BUILD; skipped unless named): R0,1FF,0 and G0 to the boot stage and the menu,
+    # ВК: the loader copies PITON.GAM from two clusters and starts it, bank 0
+    'fatcard': dict(system('fatcard', cart=fatcard_image, extra=fatcard_plusargs),
+                    skip='FAT16 card scenario; build the image first (%s) and run it by name' % FATCARD_BUILD),
     # local only (slow; the disks are built by scripts/romdisk/build_romdisks.py, not fetched)
     # boots with Kiselev's romdisk.bin, then reloads the ROM disk slot with disk 2 (cartridge2.hex): XONIX1
     # above 8000h (the 64 KB wiring, PC7 = ROM A15)

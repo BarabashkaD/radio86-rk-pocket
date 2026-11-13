@@ -22,9 +22,10 @@ network is assumed to be a trusted local one.
 
 ## 2. Install
 
-**The PC (client, Windows):**
-- Icarus Verilog 13.0, e.g. MSYS2 `pacman -S mingw-w64-ucrt-x86_64-iverilog`;
-  pass `-Iverilog` or set `IVERILOG`.
+**The PC (client, Windows; other clients are untested):**
+- Icarus Verilog 13.0, Python and git as in the repository's `AGENTS.md`,
+  section 3 ([Prerequisites](../../AGENTS.md#3-prerequisites)); pass
+  `-Iverilog` or set `IVERILOG`, or put `iverilog` on PATH.
 - The built-in OpenSSH client (`ssh`, `scp`, `ssh-keygen`; Windows 10/11
   optional feature "OpenSSH Client").
 

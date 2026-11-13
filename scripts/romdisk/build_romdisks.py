@@ -1,4 +1,4 @@
-"""Builds the 48 Karabas game tape images into 5 ROM disks of 65536 bytes (the 64 KB wiring).
+"""Builds the 48 Karabas game tape images into 5 ROM disks of 65536 bytes (each a 64 KB ROM).
 
 Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR] [--readme]
   --pk      directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
@@ -15,9 +15,9 @@ when two files of one disk share a stem. The title is "ROM-DISK/64K GAMES <n>/5"
 The payloads start at offset 0200H in menu order, behind the games loader
 (loader.games_loader); the rest is FF. The RAM address is the tape start address.
 A payload ending beyond FFFFH, or a RAM range overlapping 7400H-75FFH (the loader)
-or passing FFFFH, is an error. A disk is more than 32 KB: the core reads it with the
-64 KB ROM disk wiring (port B and port C the ROM address A0-A15); Kiselev's 32 KB wiring
-cannot read it.
+or passing FFFFH, is an error. A disk is more than 32 KB: the core reads it as a 64 KB
+ROM (port B and port C the ROM address A0-A15); a 32 KB ROM (A15 not wired: 8000-FFFF
+mirror 0000-7FFF) cannot read its upper half.
 
 The output is never committed. scripts/package.py builds the same disks itself (build, metadata)
 and puts them in the package next to Kiselev's romdisk.bin.
