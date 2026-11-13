@@ -3,7 +3,7 @@
 // System testbench of the Pocket target (spec 9.4-9.7): pocket_system with the bridge and data
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
-// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|menu64|card|xonix|game|dpddt|tetris|keytap|k1|k1_panel
+// +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|menu64|card|fatcard|xonix|game|dpddt|tetris|keytap|k1|k1_panel
 // The machine is rk86_machine16 (16 MHz, 50 Hz native frames); compile with -I <core>/src/sim/machine16
 // (cpu_power_up.vh, included by power_up.vh).
 // The ROM disk is in the PSRAM: psram_model (fpga/sim/memory, AW = 16: 128 KB, FF-filled) on the cram0
@@ -14,7 +14,10 @@
 // Working directory: monitor.hex, font.hex, cartridge.hex (fpga/sim/run_sim.py); writes frame.hex and
 // cursor.txt (the cursor cell for frame_compare.py --cursor); +cart_size=N: the ROM disk slot size
 // (default 32256, Kiselev's image; menu64: 65536, game disk 2; card: 131072, the card image of the card
-// menu and disk 2, with +card_keywait=N: the card menu's key wait); game also reads cartridge2.hex (a 64 KB
+// menu and disk 2, with +card_keywait=N: the card menu's key wait; fatcard: 131072, banks 0 and 1 of a
+// FAT16 card with PITON.GAM only, with +fatcard_keywait=N (the FAT16 menu's key wait), +game_ram=N,
+// +game_rom=N, +game_len=N (the payload's RAM address, its image offset and length; card-sim.json of
+// scripts/fatcard/fatcard.py --sim); all decimal); game also reads cartridge2.hex (a 64 KB
 // game disk) and reloads the ROM disk slot with it while the core runs, as the Pocket menu does;
 // k1 writes k1_<n>.hex (the RGB output of one displayed frame, 408 x 300, one RRGGBB per pixel)
 // and k1.log (STEP lines and, per capture, "STATE <n> <panel state hex> <green> <what>", the state
@@ -84,6 +87,7 @@ reg [7:0] font [0:1023];
 reg [7:0] cart [0:131071];           // cartridge.hex: the image, FF-padded to 64 KB, or the 128 KB card image (run_sim.py)
 integer cart_size;                      // +cart_size: the ROM disk slot size (default Kiselev's 32256)
 integer card_keywait;                   // card: +card_keywait, the card menu's key wait (card.json keywait)
+integer fatcard_keywait, fatcard_from;  // fatcard: +fatcard_keywait (card-sim.json keywait); the frame of the run key
 reg [7:0] cart2 [0:65535];           // game: cartridge2.hex, the 64 KB game disk loaded by the reload
 integer cart2_size = 65536;
 reg frame [0:122399];
@@ -157,6 +161,13 @@ localparam integer MENU_FRAMES = 50;  // G0 to the ROM disk menu (741C): not mea
 function integer copy_frames(input integer bytes);
     copy_frames = bytes / 100 + 10;
 endfunction
+// fatcard (not measured yet; each wait prints its INFO line): G0 to the FAT16 menu's key wait: the boot
+// stage copies the menu (2048 bytes, about 14 frames at 150 bytes a frame), the menu reads the root
+// sector (512, about 4) and PITON's header, then CLS and the page (24 lines); about 30 frames expected.
+// The run key to PITON's start fetch: the key (2-3 frames), the loader sector (512 bytes) to 7400, its
+// FAT walk, CLS, the payload (507 + 5 bytes from two clusters); about 12-14 frames expected.
+localparam integer FATMENU_FRAMES = 70;
+localparam integer FATRUN_FRAMES = 30;
 // native_frames counts pocket_raster's frame starts, which come only for plausible frames: before the
 // monitor programs the CRT no frame is counted, so a frame-based wait would never end on a hang there.
 // Fallback: out of reset, a frame start at least every 3 200 000 ce16 (10 frames of 319 920 ce16, as
@@ -510,6 +521,35 @@ task wait_prompt(input integer max_frames);
         info_wait("prompt on the screen", frames - start_frame, max_frames);
     end
 endtask
+// fatcard: a refusal of the FAT16 loader (NOT A TAPE, BAD FILE, ...) ends in the monitor's command
+// loop F86C; armed before the run key, a CPU read of F86C ends the start wait at once
+reg fat_armed = 1'b0, fat_refused = 1'b0;
+always @(posedge clk)
+    if (fat_armed && sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a == 16'hF86C) fat_refused <= 1'b1;
+// fatcard: after the run key, the loader's entry (a CPU read of 7400), then a bank other than 0: the loader
+// reads the FAT and the payload in bank 1 (the menu waits for the key on bank 0)
+reg fat_in_loader = 1'b0, fat_banked = 1'b0;
+always @(posedge clk) begin
+    if (fat_armed && sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a == 16'h7400) fat_in_loader <= 1'b1;
+    if (fat_in_loader && sys.rk86.cart.bank !== 7'd0) fat_banked <= 1'b1;
+end
+function [7:0] hex_char(input [3:0] v);     // an upper-case hex digit, as the FAT16 menu prints it
+    hex_char = v < 4'd10 ? 8'h30 + v : 8'h37 + v;
+endfunction
+// found = 1 when the screen RAM 76D0-7FF3 holds the len characters of text (right-aligned) in a row
+task screen_has(input [8*32-1:0] text, input integer len, output integer found);
+    integer a, k;
+    begin
+        found = 0;
+        for (a = 16'h76D0; a + len <= 16'h7FF4 && !found; a = a + 1) begin
+            found = 1;
+            for (k = 0; k < len && found; k = k + 1) if (sys.rk86.mem.ram[a + k] !== text[8*(len-1-k) +: 8]) found = 0;
+        end
+    end
+endtask
+task fatcard_fail(input [8*64-1:0] what);   // the screen RAM 7600-7FF3 to fatcard_screen.hex, then fail
+    begin $writememh("fatcard_screen.hex", sys.rk86.mem.ram, 16'h7600, 16'h7FF3); fail(what); end
+endtask
 task boot(input with_cart, input [1:0] boot_preset);
     begin
         load(with_cart);
@@ -768,6 +808,61 @@ initial begin
         wait_fetch(16'hFE63, FE63_FRAMES, "card: no keyboard loop after Cold boot");
         if (sys.rk86.cart.bank !== 7'd0) fail("card: Cold boot did not clear the bank");
         $display("PASS card: card menu, key 0, bank 1, the menu of disk 2; Reset keeps the bank, Cold boot clears it");
+    end else if (scenario == "fatcard") begin
+        // the FAT16 card (+cart_size=131072, scripts/fatcard/fatcard.py --sim: banks 0 and 1 of a card with
+        // PITON.GAM only). R0,1FF,0 and G0 start the boot stage (sector 0), which copies the menu (sectors
+        // 1-4) to 6C00; the menu reads the BPB, the root directory and PITON's header (bank 1), selects
+        // bank 0 (Reset keeps the bank: R0,1FF,0 must read the boot stage) and waits at +fatcard_keywait.
+        // ВК runs the first entry: the menu copies the loader (sector 5, bank 0) to 7400; the loader walks
+        // the FAT, copies the payload from two clusters (bank 1) to +game_ram, selects bank 0 and jumps
+        // there. RAM [game_ram, +game_len) holds the inverse of the payload before the key, so every byte
+        // must come from the loader.
+        if (!$value$plusargs("fatcard_keywait=%d", fatcard_keywait) || !$value$plusargs("game_ram=%d", game_ram) ||
+            !$value$plusargs("game_rom=%d", game_rom) || !$value$plusargs("game_len=%d", game_len)) fail("fatcard: plusargs");
+        if (fatcard_keywait < 16'h6C00 || fatcard_keywait > 16'h71FF) fail("fatcard: +fatcard_keywait not in 6C00-71FF");
+        if (game_len < 1 || game_ram < 16'h0200 || game_ram + game_len + 1 > 16'h6C00)
+            fail("fatcard: payload not in 0200-6BFE (TB writes it before the key)");
+        if (game_rom < 4 || game_rom + game_len > cart_size) fail("fatcard: +game_rom, +game_len beyond the image");
+        // the image matches the plusargs (not a stale build): the menu's key wait is CALL F803 (GETCH)
+        // in sector 1 (6C00 at image 0200), and the 4 bytes before the payload are its tape header
+        if (cart[16'h0200 + fatcard_keywait - 16'h6C00] !== 8'hCD || cart[16'h0201 + fatcard_keywait - 16'h6C00] !== 8'h03 ||
+            cart[16'h0202 + fatcard_keywait - 16'h6C00] !== 8'hF8) fail("fatcard: no CALL F803 at +fatcard_keywait (stale image?)");
+        n = game_ram + game_len - 1;
+        if (cart[game_rom - 4] !== game_ram[15:8] || cart[game_rom - 3] !== game_ram[7:0] ||
+            cart[game_rom - 2] !== n[15:8] || cart[game_rom - 1] !== n[7:0]) fail("fatcard: no tape header before +game_rom (stale image?)");
+        n = 0;
+        for (i = 0; i < game_len; i = i + 1) if (cart[game_rom + i] !== 8'h00) n = 1;
+        if (n == 0) fail("fatcard: the payload is all 00");
+        boot(1'b1, 2'd0);
+        if (sys.rk86.romdisk_card !== 1'b1 || sys.rk86.romdisk_64k !== 1'b1) fail("fatcard: a 131072-byte image, not the card wiring");
+        if (sys.rk86.cart.bank !== 7'd0) fail("fatcard: bank not 0 after the slot load");
+        r_g0;                                        // RAM 0000-01FF = sector 0 (the boot stage), then G0
+        wait_fetch(fatcard_keywait[15:0], FATMENU_FRAMES, "fatcard: no menu key wait");
+        if (sys.rk86.cart.bank !== 7'd0) fail("fatcard: bank not 0 at the menu key wait");
+        // the page: one file (the volume label skipped), PITON.GAM with its range on the first line
+        screen_has("RK86 CARD  1 FILES  PAGE 1/1", 28, n);
+        if (!n) fatcard_fail("fatcard: no title RK86 CARD  1 FILES  PAGE 1/1 on the screen");
+        n = game_ram + game_len - 1;
+        screen_has({"PITON    GAM   ", hex_char(game_ram[15:12]), hex_char(game_ram[11:8]), hex_char(game_ram[7:4]),
+                    hex_char(game_ram[3:0]), "-", hex_char(n[15:12]), hex_char(n[11:8]), hex_char(n[7:4]),
+                    hex_char(n[3:0])}, 24, n);
+        if (!n) fatcard_fail("fatcard: PITON.GAM and its range not listed on the screen");
+        for (i = 0; i < game_len; i = i + 1) sys.rk86.mem.ram[game_ram + i] = ~cart[game_rom + i];
+        sys.rk86.mem.ram[game_ram + game_len] = 8'h5A;   // the byte after the payload: kept
+        fatcard_from = frames; fat_armed = 1'b1;
+        press_key(KEY_VK);                           // run the selected (first) entry
+        while (!(sys.rk86.machine.cpu_a == game_ram[15:0] && sys.rk86.machine.cpu_dbin)) begin
+            @(posedge clk);
+            if (fat_refused) fatcard_fail("fatcard: the loader refused PITON.GAM (F86C)");
+            if (frames - fatcard_from > FATRUN_FRAMES) fatcard_fail("fatcard: PITON.GAM did not start");
+        end
+        $display("INFO: fatcard: run key to the fetch of %h at frame %0d: %0d frames (limit %0d)",
+                 game_ram[15:0], frames, frames - fatcard_from, FATRUN_FRAMES);
+        if (!fat_banked) fail("fatcard: bank 0 throughout the loader (no bank 1 read)");
+        check_ram(game_ram, game_rom, game_len, "fatcard: PITON.GAM differs in RAM");
+        if (sys.rk86.mem.ram[game_ram + game_len] !== 8'h5A) fail("fatcard: the loader wrote past the payload");
+        if (sys.rk86.cart.bank !== 7'd0) fail("fatcard: bank not 0 at the program start");
+        $display("PASS fatcard: FAT16 card menu, PITON.GAM loaded and started");
     end else if (scenario == "xonix") begin
         boot(1'b1, 2'd0);
         if (sys.rk86.romdisk_64k !== 1'b0) fail("xonix: Kiselev's 32256-byte image, the 64 KB wiring chosen");
@@ -805,7 +900,7 @@ initial begin
         if (!$value$plusargs("game_key=%d", game_key) || !$value$plusargs("game_ram=%d", game_ram) ||
             !$value$plusargs("game_rom=%d", game_rom) || !$value$plusargs("game_len=%d", game_len)) fail("game: plusargs");
         if (game_rom < 32768) fail("game: the entry is not above 8000h (the ROM A15 line untested)");
-        boot(1'b1, 2'd0);                          // checkpoint 1: Kiselev's image, the 32 KB wiring
+        boot(1'b1, 2'd0);                          // checkpoint 1: Kiselev's image, 32 KB ROM, A15 not wired (mirror)
         if (sys.rk86.romdisk_64k !== 1'b0) fail("game: Kiselev's 32256-byte image, the 64 KB wiring chosen");
         sys.rk86.mem.ram[16'h5000] = 8'h5A;          // a marker the reload must keep (RAM kept)
         reload_slot2;                                // checkpoint 2: the reload, the 64 KB wiring, the RAM kept
@@ -821,7 +916,7 @@ initial begin
             if (sys.rk86.machine.cpu_dbin && sys.rk86.machine.cpu_a >= game_ram && sys.rk86.machine.cpu_a < game_ram + game_len) n = n + 1;
         end
         if (n < 1000) fail("the game does not run");
-        $display("PASS game: Kiselev's image (32 KB wiring), reloaded with the 64 KB disk (64 KB wiring, RAM kept), menu key %0s, copied to %h, started there and running", game_key[7:0], game_ram[15:0]);
+        $display("PASS game: Kiselev's image (32 KB ROM, A15 not wired (mirror)), reloaded with the 64 KB disk (64 KB wiring, RAM kept), menu key %0s, copied to %h, started there and running", game_key[7:0], game_ram[15:0]);
     end else if (scenario == "keytap") begin
         // Key tap timing at the 16 MHz machine (pocket_keyboard holds a tapped key MIN_HOLD_MS, a value
         // from the 1.43 MHz machine): with Keys = Digits 7-8-9-6, a D-pad Left held exactly 80 ms (7)

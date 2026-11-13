@@ -42,6 +42,12 @@ jobs:
         run: python -B scripts/check_repo.py
       - name: Fetch and check the assets
         run: python -B scripts/fetch_assets.py
+      - name: mtools for the FAT16 card tests
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          sudo apt-get update
+          sudo apt-get install -y mtools
+          mformat --version
       - name: Unit tests (no skips)
         run: pwsh -File scripts/ci/unit-tests.ps1
       - name: Package dry run with a stand-in bitstream
@@ -112,7 +118,7 @@ jobs:
   core-machine:
     name: Core machine TB subset
     runs-on: ubuntu-24.04
-    timeout-minutes: 60     # cpu16 about 7 min remote; its two faults stop early
+    timeout-minutes: 60     # cpu16 about 7 min remote; its three faults stop early
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
