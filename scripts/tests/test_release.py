@@ -683,7 +683,7 @@ _VAR = r'\$[A-Za-z][A-Za-z0-9]*'
 _RELEASES = r'repos/\$env:GH_REPO/releases'
 # Every GitHub call of the workflow, as the PowerShell parser gives its elements: (form, writes).
 # The draft is found by listing every release; every write goes to its id ($env:RELEASE_ID, from the
-# lookup) or to an asset id ($assetId); the PATCH sends $patchFile, whose only key is body. A job
+# lookup) or to an asset id ($assetId); the PATCH sends $patchFile: the body, the draft's own tag and target, draft true. A job
 # that uses a writing form must run in the environment release (the maintainer's approval).
 # A writing form is allowed only in its function (None: the script's top level), whose body
 # WRITE_FUNCTIONS fixes.
@@ -749,12 +749,13 @@ CMDLET_FORMS = {name: re.compile(form, re.S) for name, form in {
     'ForEach-Object': r'ForEach-Object \{.*\}',
     'Sort-Object': r'Sort-Object( Name)?',
     'ConvertFrom-Json': r'ConvertFrom-Json',
-    'ConvertTo-Json': r'ConvertTo-Json -Compress -InputObject @\{ body = \$notes \}',
+    'ConvertTo-Json': r'ConvertTo-Json -Compress -InputObject @\{ body = \$notes; tag_name = \$env:TAG; '
+                      r'target_commitish = \$env:TARGET_SHA; draft = \$true \}',
     'Test-Path': r"Test-Path -LiteralPath 'scripts/release/make_release\.py' -PathType Leaf",
 }.items()}
 FUNCTION_NAME = re.compile(r'[A-Z][a-z]+-[A-Z][A-Za-z0-9]*')
-PATCH_WRITE = ('[IO.File]::WriteAllText($patchFile, (ConvertTo-Json -Compress -InputObject @{ body = $notes }), '
-               '$utf8)')
+PATCH_WRITE = ('[IO.File]::WriteAllText($patchFile, (ConvertTo-Json -Compress -InputObject @{ body = $notes; '
+               'tag_name = $env:TAG; target_commitish = $env:TARGET_SHA; draft = $true }), $utf8)')
 FILE_WRITES = {PATCH_WRITE, "[IO.File]::WriteAllText((Join-Path $in 'body.md'), [string]$release.body, "
                             "[Text.UTF8Encoding]::new($false))"}
 STATIC_MEMBERS = {('[IO.File]', 'WriteAllText'), ('[IO.File]', 'ReadAllText'), ('[Text.UTF8Encoding]', 'new'),
@@ -881,8 +882,11 @@ def workflow_problems(text):
         wf = parse_yaml(text)
     except YamlError as e:
         return ['YAML: %s' % e]
+    # the notes edit sends the draft's own tag, target and draft true (PATCH_WRITE, exactly once):
+    # a body-only edit makes GitHub drop a draft's tag name (dry run 2026-11-14)
+    scanned = text.replace(PATCH_WRITE, '', 1)
     for pattern, why in FORBIDDEN_TEXT:
-        for m in pattern.finditer(text):
+        for m in pattern.finditer(scanned):
             problems.append('%s: %r' % (why, m.group(0)))
     if not isinstance(wf, dict):
         return problems + ['not a mapping']
@@ -1380,6 +1384,13 @@ CHANGES = {
         "$code = 'g' + 'h api -X PATCH -F dr' + 'aft=false repos/' + $env:GH_REPO + '/releases/' + $env:RELEASE_ID\n"
         "$null = New-Item -ItemType File -Force -Path (Join-Path $HOME '.config/powershell/"
         "Microsoft.PowerShell_profile.ps1') -Value $code"),
+    # the notes edit's fields (tag, target and draft sent again since the dry run of 2026-11-14)
+    'notes edit publishes': _replace('draft = $true }', 'draft = $false }'),
+    'notes edit sets another tag': _replace('tag_name = $env:TAG;', "tag_name = 'v9.9.9';"),
+    'notes edit sets another target': _replace('target_commitish = $env:TARGET_SHA;', "target_commitish = 'main';"),
+    'notes edit drops draft': _replace('; draft = $true }', ' }'),
+    'notes edit adds a field': _replace('draft = $true }', 'draft = $true; make_latest = \'true\' }'),
+    'the fields line twice': _after_line(_PATCH_LINE, PATCH_WRITE),
     # the checks of the writing functions and of the build job's date dropped (round 3)
     'Add-Asset without the draft check': _replace('            $null = Get-Draft\n', ''),
     'Remove-Asset without the draft check': _replace_last('            $null = Get-Draft\n', ''),
