@@ -329,7 +329,7 @@ Writes `build/package/sd/` and `build/package/BarabashkaD.Radio86RK_<version>_<d
 
 ### Release
 
-The release files are made by `.github/workflows/release.yml` from a bitstream that the maintainer attaches to a draft release. Not run on GitHub yet: a dry run on a test draft (`v0.0.0-ci-test`) is the first check (section 8).
+The release files are made by `.github/workflows/release.yml` from a bitstream that the maintainer attaches to a draft release. Checked by two dry runs on a test draft (`v0.0.0-ci-test`, 2026-11-14; section 8); no release made with it yet.
 
 ```text
 python -B scripts/release/make_release.py --version <version> [--date <YYYY-MM-DD>]
@@ -355,7 +355,7 @@ A release run:
 1. The release commit (with `## <version> (<date>)` in `CHANGELOG.md`) is merged into `main`; `build.ps1` built `ap_core.rbf` (keep it and its SHA256 until the release is published). Take the target SHA from `main` after the merge, and before attaching `ap_core.rbf` check `git diff --quiet <commit the bitstream was built from> <target SHA>` (or rebuild from the target), so that the notes' source commit is the tree that produced the bitstream.
 2. A draft with the tag `v<version>`, its target that full SHA on `main`, the summary in its notes (above the marker; everything from the marker on is replaced), and only `ap_core.rbf` attached.
 3. Run `release.yml` from `main` with the tag (`date` empty) and approve the write job.
-4. Check the draft: exactly the 10 release files; `SHA256SUMS.txt` against the downloaded files; the notes' bitstream SHA256 equals the local `ap_core.rbf` (compare the bitstream, never the zip); `core.json` in the zip has the version and date; the date line says CHANGELOG, not "given by hand"; `ap_core.rbf` is gone. Then the hardware test on the draft's files, then the maintainer publishes.
+4. Check the draft: exactly the 10 release files; download them (`gh release download v<version> -D <new folder>` finds a draft) and check them against `SHA256SUMS.txt`; the notes' bitstream SHA256 equals the local `ap_core.rbf` (compare the bitstream, never the zip); `core.json` in the zip has the version and date; the date line says CHANGELOG, not "given by hand"; `ap_core.rbf` is gone. Then the hardware test on the draft's files, then the maintainer publishes.
 
 Runs and re-runs:
 
@@ -364,7 +364,7 @@ Runs and re-runs:
 - Do not edit the notes while a run waits for approval: the write job stops ("notes changed during the run").
 - If the write job is approved after the 1-day `release-files` artifact expired, it stops at the download, before any write; re-run all jobs.
 - On a re-run without `ap_core.rbf` the bitstream comes from the draft's core zip; if the rebuilt zip differs, the job stops ("attach ap_core.rbf and run again").
-- Delete a test draft through the web page or by its release id (a draft has no tag yet), and check that no tag `v0.0.0-ci-test` was made.
+- Delete a test draft through the web page or by its release id (a draft has no tag yet), and check that no tag `v0.0.0-ci-test` was made. Never publish a test draft: publishing makes its tag, and the ruleset "Release tags - immutable" lets nobody delete or move a `v*` tag.
 
 ### CI (GitHub Actions)
 
@@ -374,7 +374,7 @@ Runs and re-runs:
   - `K1 panel scenario`: `system_k1_panel` and `check_frames.py --expect 3`;
   - `Core machine TB subset`: `run_sim.py --negative cpu16` (the CPU test program on `rk86_machine16` with `pocket_memory`).
 - `weekly.yml` (Mondays 03:17 UTC, on demand), one job per runner: `boot`, `powerup`, `nocart`, `reset`, `relock`, `system_watchdog`, `keytap`, `k1` (`check_frames.py --expect 7`); `run_core_machine.py`; the fork's `run_machine16_sim.py --negative <test>`, one job per test (`machine16` with its faults in one job). Re-enable it in the Actions tab after 60 days without activity.
-- `release.yml` (manual, `main` only; jobs `find`, `build`, `write`, the last in the environment `release`): Release, above. Not run on GitHub yet.
+- `release.yml` (manual, `main` only; jobs `find`, `build`, `write`, the last in the environment `release`): Release, above. Two dry runs on a test draft (section 8).
 - Time limits (minutes): 2-3 times the remote times above (a GitHub runner's Icarus is that much slower), plus the setup; GitHub stops any job at 360.
   - `checks.yml`: Python 30, unit simulations 60, K1 panel 45, core machine subset (`cpu16`) 60.
   - `weekly.yml`: `boot` 150, `powerup` 120, `nocart` 90, `reset` 240, `relock` 180, `system_watchdog` 150, `keytap` 210, `k1` 340; `run_core_machine.py` 240; fork unit TBs 330 each, `machine16` with its faults 360 (it may reach the cap until the fork runner can run its faults in groups).
@@ -434,6 +434,10 @@ Unreleased since 0.8.2: the ROM disk in the PSRAM (images up to 8 MB), the J6 ba
 - Follow-up: `powerup` uses Icarus' fixed `$random` sequence (one state, no `+seed`) and randomises only the 8275 parameters and the 8257 address and count.
 - Follow-up, J6 bank card: writes to the card (PB7 reserved for it); the physical card (memory part, power, PCB, a breadboard check of the RC delay; `hardware/j6-bank-card.md`).
 - Follow-up, FAT16 card: DP/DDT on the card (6400-76FF overlaps the loader 7400-75FF and the monitor's variables 7600-765F: a bank-aware load is needed); menu keys for the presets other than Cursor; key autorepeat of a held button in the menu; `--pk` through `RK86_CORE_DIR` (section 2).
-- Follow-up, release workflow: the first dry run on a test draft (`v0.0.0-ci-test`, a stand-in bitstream, `date` given; 2026-11-14, run 43581264060) worked up to the notes edit: the draft listed and its `ap_core.rbf` downloaded with the `contents: write` token, `download-artifact` v8 reading `upload-artifact` v7 artifacts, the custom `pwsh -NoProfile` shell, Ubuntu's mtools in `make_release.py`, the environment approval, the 10 uploads to `uploads.github.com` through `gh api`. The notes edit then sent the body alone and GitHub dropped the draft's tag name (`untagged-...`); the check of its answer stopped the run with `ap_core.rbf` kept. The edit now sends the tag, the target and `draft` true as well (checked by hand on the test draft: still a draft, the tag name back, no git tag). Still to check by a second dry run after that fix: the whole write job, a re-run on the same draft (identical files kept: the assets' `digest` field), whether `contents: read` would do for `find`, and the zip's bytes with Ubuntu's zlib against a local zip. Then the draft deleted; update this item.
+- Release workflow, dry runs on a test draft (`v0.0.0-ci-test`, a stand-in bitstream of 4096 bytes, `date` given; 2026-11-14; the draft and the run artifacts deleted afterwards, no git tag made):
+  - First run (43581264060): `find` (the draft listed, `ap_core.rbf` downloaded with the `contents: write` token), `build` (Ubuntu's mtools 4.0.43 in `make_release.py`), the environment approval, `download-artifact` v8 reading `upload-artifact` v7 artifacts, the custom `pwsh -NoProfile` shell and the 10 uploads to `uploads.github.com` through `gh api` worked. The notes edit sent the body alone and GitHub dropped the draft's tag name (`untagged-...`); the check of its answer stopped the run with `ap_core.rbf` kept. Fixed: the edit also sends the tag, the target and `draft` true.
+  - Second run (43584173370, after the fix, on the same draft): every job passed. All 10 files were byte-identical to the new build and kept (the assets' `digest` field compared); the notes: the summary kept, the marker and the TEST BUILD line once, the generated block; the draft still a draft with its tag and target; `ap_core.rbf` deleted last. `gh release download` finds the draft; `SHA256SUMS.txt` matches the downloaded files; `core.json` has the version and date.
+  - Against a local `make_release.py` run from the same bitstream (Windows): the 7 images and the licence byte-identical; the zip has the same 19 entries, dates and contents, its bytes differ (Ubuntu's zlib), and so does `SHA256SUMS.txt`.
+  - Open: whether `contents: read` would do for `find` (hardening, not needed for a release).
 - Release workflow, by design: the zip's bytes depend on the zlib build (a local zip and the CI zip may differ; compare the bitstream SHA256, not the zip's). The `find` job holds a `contents: write` token without approval; only the guard keeps it to API reads, and anyone who can push to `main` can change both the workflow and the guard (branch protection and the environment approval are the protection).
 - `cram1`, SRAM and SDRAM stay tied off in `core_top.v`.
