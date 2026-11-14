@@ -98,6 +98,6 @@ Copy the images to the folder `Assets/radio86rk/BarabashkaD.Radio86RK/` on the S
 ### Upgrading from 0.8.2
 
 The 0.8.2 package put `romdisk.bin`, `romdisk-1.bin` to `romdisk-5.bin` and `romdisks.txt` in the
-folder. Unzipping a newer package deletes nothing: these images stay there and keep working. The
-package's `ROMDISKS.txt` replaces `romdisks.txt` (the SD card does not tell upper and lower case
-apart, so the file may keep its old name).
+folder, and `LICENSE-romdisk.txt` in `Cores/BarabashkaD.Radio86RK/`. Unzipping a newer package
+deletes nothing: these files stay there. The package's `ROMDISKS.txt` replaces `romdisks.txt` (the
+SD card does not tell upper and lower case apart, so the file may keep its old name).

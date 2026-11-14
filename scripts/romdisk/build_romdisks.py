@@ -20,7 +20,8 @@ ROM (port B and port C the ROM address A0-A15); a 32 KB ROM (A15 not wired: 8000
 mirror 0000-7FFF) cannot read its upper half.
 
 The output is never committed. scripts/package.py builds the same disks itself (build, metadata)
-and puts them in the package next to Kiselev's romdisk.bin.
+for their game lists only (info.txt, ROMDISKS.txt); scripts/release/make_release.py attaches them
+to a release. The package holds no ROM disk image.
 """
 import argparse
 import json

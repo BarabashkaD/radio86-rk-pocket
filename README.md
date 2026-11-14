@@ -14,12 +14,13 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 - Not released yet: ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`), the FAT16 card (`fatcard.bin`) and the package without ROM disk images (the images as separate downloads).
 - An earlier PSRAM test build (10e6cf4, before the J6 card) ran on a Pocket by the maintainer (2026-11-13).
 - The test build 0.8.3-j6-test with these changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
+- Not run on a Pocket yet: the package without ROM disk images, a fresh install without `romdisk.bin`, 0.8.2's images with this core (expected to keep working), and the images built for a release (by `scripts/release/make_release.py`). The release workflow (`.github/workflows/release.yml`) has not run on GitHub yet.
 
 ## Features
 
 - The original's timing: 16 MHz timebase, CPU 1.778 MHz, 8 MHz dots, 50 Hz frames. CPU, DMA, CRT controller and PPI follow their data sheets; the video DMA takes CPU time as on the original ([fpga/README.md](fpga/README.md#the-16-mhz-machine)).
 - ROM disk images as separate downloads: Kiselev's ROM disk with a program menu (at its source), 5 game disks (64 KB each) with 48 games, a J6 card menu and a FAT16 card ([ROM disk images](#rom-disk-images)).
-- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. Both are on the release page and can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
+- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. From the first release after 0.8.2 both are on the release page; both can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
 - On-screen keyboard (L+R): the 67 real keys, LAT and RUS, Shift and Ctrl, three palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or A B X Y.
 - Screen: 408 x 300 at 60 Hz, about 25 picture updates per second. Sound: the beeper (INTE), 48 kHz.
@@ -136,9 +137,9 @@ The games of each disk, by menu key: [Game disks](#game-disks).
 ### Upgrading from 0.8.2
 
 The 0.8.2 package put `romdisk.bin`, `romdisk-1.bin` to `romdisk-5.bin` and `romdisks.txt` in the
-folder. Unzipping a newer package deletes nothing: these images stay there and keep working. The
-package's `ROMDISKS.txt` replaces `romdisks.txt` (the SD card does not tell upper and lower case
-apart, so the file may keep its old name).
+folder, and `LICENSE-romdisk.txt` in `Cores/BarabashkaD.Radio86RK/`. Unzipping a newer package
+deletes nothing: these files stay there. The package's `ROMDISKS.txt` replaces `romdisks.txt` (the
+SD card does not tell upper and lower case apart, so the file may keep its old name).
 <!-- end of romdisk images -->
 
 ## ROM disks and cards
@@ -167,12 +168,12 @@ An image above 64 KB is a J6 bank card. Old programs and the monitor's `R` see t
 - Power-up, a load of the ROM disk slot and Core Settings > Cold boot select bank 0. Core Settings > Reset keeps the bank, as a real card has no reset line on J6.
 - A program that writes A002/A003 (for example LORUNNER.GAM and SDEMISE.GAM drive port C for sound), or Ctrl-C during a load, can leave another bank selected. Then Cold boot or load the ROM disk slot again.
 - The bank cannot be read back.
-- Card images are not in the package: `card.bin` and `fatcard.bin` are on the release page ([ROM disk images](#rom-disk-images)), or build them (below).
+- Card images are not in the package: `card.bin` and `fatcard.bin` are release assets from the first release after 0.8.2 on ([ROM disk images](#rom-disk-images)), or build them (below).
 - A reference design of a real card for J6 (never built): [hardware/j6-bank-card.md](hardware/j6-bank-card.md).
 
 ### J6 card menu
 
-A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. The release page has `card.bin`; to build it yourself:
+A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. From the first release after 0.8.2 on, the release page has `card.bin`; to build it yourself:
 
 ```text
 git clone --recursive <repo url>
@@ -187,7 +188,7 @@ Copy `card.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the 
 
 ### FAT16 card
 
-An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader. The release page has `fatcard.bin`; to build it yourself:
+An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader. From the first release after 0.8.2 on, the release page has `fatcard.bin`; to build it yourself:
 
 The builder needs mtools: on Windows the MSYS2 UCRT64 package `mingw-w64-ucrt-x86_64-mtools`, on Linux `apt install mtools`; set `MTOOLS_DIR` to their directory, or put them on PATH.
 
@@ -211,7 +212,7 @@ Copy `fatcard.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in t
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). They are on the release page ([ROM disk images](#rom-disk-images)), not in the package; `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). From the first release after 0.8.2 on they are on the release page ([ROM disk images](#rom-disk-images)), not in the package (0.8.2's package had them); `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
 
 <!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->
 **`romdisk-1.bin`** (9 games)
@@ -315,15 +316,24 @@ RUS key names: ВК (CR), ЗБ (BS), АР2 (ESC), СТР (CLS), ПС (LF), УС 
 ```text
 git clone --recursive https://github.com/BarabashkaD/radio86-rk-pocket
 cd radio86-rk-pocket
-python -B scripts/fetch_assets.py
 pwsh -File scripts/build.ps1
 python -B scripts/package.py --version <version> --date <YYYY-MM-DD>
 ```
 
-- Prerequisites (versions, sources, environment variables: [AGENTS.md, section 3](AGENTS.md#3-prerequisites)): Quartus Prime Lite 25.1std with Cyclone V device support (no licence file needed; the bitstream only); Icarus Verilog 13.0 (the simulations and the Python tests); Python 3.14 (standard library only); PowerShell 7; git; mtools (the FAT16 card and its tests). Tools on PATH need no environment variables.
+All files of a release (the package, the game disks, `card.bin`, `fatcard.bin`, Kiselev's licence, `SHA256SUMS.txt`, the notes) from one bitstream:
+
+```text
+python -B scripts/fetch_assets.py
+python -B scripts/release/make_release.py --version <version> --bitstream build/quartus/output_files/ap_core.rbf --out <new folder> --notes-out <notes file>
+```
+
+The date comes from the heading `## <version> (<date>)` of `CHANGELOG.md`; `--date <YYYY-MM-DD>` only for a version without that heading.
+
+- Prerequisites (versions, sources, environment variables: [AGENTS.md, section 3](AGENTS.md#3-prerequisites)): Quartus Prime Lite 25.1std with Cyclone V device support (no licence file needed; the bitstream only); Icarus Verilog 13.0 (the simulations and the Python tests); Python 3.14 (standard library only); PowerShell 7 (also for the release tests); git; mtools (the FAT16 card, `make_release.py` and their tests). Tools on PATH need no environment variables.
 - The bitstream builds on Windows only; the simulations, the Python tests and the package dry run (`pwsh -File scripts/ci/package-dry-run.ps1`) also on Linux, as in CI.
-- A GitHub source zip has no submodule (`cores/karabas-go-core-rk86`): clone with `--recursive`. `fetch_assets.py` needs the network once (GitHub).
-- The package holds no ROM disk image. The game disks (`python -B scripts/romdisk/build_romdisks.py`) and the card images ([J6 card menu](#j6-card-menu), [FAT16 card](#fat16-card)) are built separately; the FAT16 card and its tests need mtools (`MTOOLS_DIR` or PATH).
+- A GitHub source zip has no submodule (`cores/karabas-go-core-rk86`): clone with `--recursive`. `fetch_assets.py` needs the network once (GitHub); `package.py` does not need it, `make_release.py`, the card builders and the tests do.
+- The package holds no ROM disk image. The game disks (`python -B scripts/romdisk/build_romdisks.py`) and the card images ([J6 card menu](#j6-card-menu), [FAT16 card](#fat16-card)) are built separately, or all at once by `make_release.py`; the FAT16 card and its tests need mtools (`MTOOLS_DIR` or PATH).
+- A published release's files are made by the release workflow (`.github/workflows/release.yml`) from the maintainer's bitstream ([AGENTS.md, section 6](AGENTS.md#6-build-and-test)). A local zip may differ in bytes from the release's even from the same bitstream (another zlib build).
 
 Design, build and tests: [fpga/README.md](fpga/README.md). Instructions for coding agents: [AGENTS.md](AGENTS.md).
 

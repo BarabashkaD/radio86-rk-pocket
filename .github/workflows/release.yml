@@ -1,0 +1,405 @@
+# Release files for a draft GitHub release (AGENTS.md section 6). Manual only, from main only. The
+# maintainer makes the draft (target: the full SHA of a commit of main that holds scripts/release/),
+# attaches the Quartus build's ap_core.rbf, writes the summary and runs this workflow with the tag;
+# the maintainer checks the filled draft and publishes it by hand.
+# Three jobs. find (token, API reads only, no checkout): the one release with the tag, refused
+# unless it is a draft whose target is on main; ap_core.rbf (on a re-run without it: the core zip
+# already on the draft) and the notes kept as a run artifact for 7 days before anything changes.
+# build (no token, contents: read): the target commit, scripts/release/make_release.py, the files
+# and the notes as an artifact. write (token, environment release, no checkout, no repository
+# code): before every write it checks again that the release with the tag is still that one draft,
+# then writes by its id only (asset uploads, asset deletes by asset id, the notes body), and
+# deletes ap_core.rbf last, by the asset id recorded at the start. CI never publishes and never
+# makes a tag or a release.
+# What protects the releases: the protected environment release (the maintainer approves each
+# write job; create it in the repository settings with yourself as required reviewer before the
+# first run, or GitHub creates it unprotected), runs from main only, and immutable releases
+# (recommended: enable them; they lock a published release's assets and tag, not necessarily its
+# notes: check GitHub's documentation at the dry run). The find job holds a contents: write token
+# without approval (from memory, only a token with push access sees drafts); only the guard keeps
+# it to API reads. scripts/tests/test_release.py (WorkflowGuard, with scripts/tests/pwsh_ast.ps1)
+# holds an allow-list of what this file may do: it catches accidental edits, it is not a proof. The
+# write job treats what the build job hands over (files, notes, date) as data and checks it. Only a
+# dry run on a test draft checks the API calls against GitHub.
+name: release
+run-name: release ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag of the draft release, for example v0.8.3'
+        required: true
+        type: string
+      date:
+        description: 'Release date YYYY-MM-DD; empty: the date of the heading of the version in CHANGELOG.md'
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  find:
+    name: Find the draft and keep its inputs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      id: ${{ steps.find.outputs.id }}
+      sha: ${{ steps.find.outputs.sha }}
+      kind: ${{ steps.inputs.outputs.kind }}
+      file: ${{ steps.inputs.outputs.file }}
+      rbf_id: ${{ steps.inputs.outputs.rbf_id }}
+      rbf_size: ${{ steps.inputs.outputs.rbf_size }}
+    steps:
+      - name: Find the draft by its tag
+        id: find
+        shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          DATE: ${{ inputs.date }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          function Stop-Release([string]$message) { Write-Host "::error::$message"; exit 1 }
+          # The inputs are free text: checked first, not echoed when wrong
+          if ($env:TAG -cnotmatch '^v[0-9][0-9A-Za-z.-]*\z') { Stop-Release 'input tag is not v<version> (v, a digit, then A-Z a-z 0-9 . -)' }
+          if ($env:DATE -and $env:DATE -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}\z') { Stop-Release 'input date is not YYYY-MM-DD (or leave it empty)' }
+          if ($env:TAG -clike '*-ci-test*') { Write-Host '::warning::A test tag. Delete this draft after the check; never publish it.' }
+          # Every release with the tag (a draft has no tag in git yet, so only the list knows it)
+          $all = @((gh api --paginate --slurp "repos/$env:GH_REPO/releases?per_page=100") -join "`n" | ConvertFrom-Json | ForEach-Object { $_ })
+          $named = @($all | Where-Object { $_.tag_name -ceq $env:TAG })
+          if ($named.Count -ne 1) { Stop-Release "$($named.Count) releases with the tag $env:TAG (exactly one, a draft, needed)" }
+          $release = $named[0]
+          if ($release.draft -ne $true) { Stop-Release "the release $env:TAG is published; CI never changes a published release" }
+          $sha = [string]$release.target_commitish
+          if ($sha -cnotmatch '^[0-9a-f]{40}\z') { Stop-Release "the target of the draft is '$sha', not a commit: edit the draft and set its target to the full SHA of the release commit" }
+          $id = [string]$release.id
+          if ($id -cnotmatch '^[0-9]+\z') { Stop-Release 'the release id is not a number' }
+          # The target must be a commit of main (behind it or equal to it)
+          $compare = (gh api "repos/$env:GH_REPO/compare/main...$sha") -join "`n" | ConvertFrom-Json
+          if ([string]$compare.status -cnotin @('behind', 'identical')) { Stop-Release "the draft's target is not on main (compare status '$($compare.status)'): set its target to a commit of main" }
+          # The notes as they are now (make_release.py keeps them up to the marker line)
+          $in = Join-Path $env:RUNNER_TEMP 'release-inputs'
+          $null = New-Item -ItemType Directory -Path $in
+          [IO.File]::WriteAllText((Join-Path $in 'body.md'), [string]$release.body, [Text.UTF8Encoding]::new($false))
+          Write-Host "workflow $env:GITHUB_WORKFLOW_REF at $env:GITHUB_WORKFLOW_SHA"
+          Write-Host "draft $id, tag $env:TAG, target $sha, date input '$env:DATE'"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "id=$id"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha=$sha"
+
+      - name: Download the bitstream (ap_core.rbf, else the core zip of an earlier run)
+        id: inputs
+        shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.find.outputs.id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          function Stop-Release([string]$message) { Write-Host "::error::$message"; exit 1 }
+          $in = Join-Path $env:RUNNER_TEMP 'release-inputs'
+          $fixed = @('romdisk-1.bin', 'romdisk-2.bin', 'romdisk-3.bin', 'romdisk-4.bin', 'romdisk-5.bin', 'card.bin', 'fatcard.bin', 'romdisk-LICENSE.txt', 'SHA256SUMS.txt')
+          $assets = @((gh api --paginate --slurp "repos/$env:GH_REPO/releases/$env:RELEASE_ID/assets?per_page=100") -join "`n" | ConvertFrom-Json | ForEach-Object { $_ })
+          foreach ($a in $assets) { Write-Host "asset $($a.name), $($a.size) bytes, id $($a.id)" }
+          # Only files CI knows may be on the draft (it deletes nothing else, so it refuses others)
+          $other = @($assets | Where-Object { $_.name -cne 'ap_core.rbf' -and $_.name -cnotin $fixed -and $_.name -cnotlike 'BarabashkaD.Radio86RK_*.zip' })
+          if ($other.Count) { Stop-Release ('not release files, remove them from the draft by hand: ' + (($other | ForEach-Object { $_.name }) -join ', ')) }
+          $rbf = @($assets | Where-Object { $_.name -ceq 'ap_core.rbf' })
+          $zips = @($assets | Where-Object { $_.name -clike 'BarabashkaD.Radio86RK_*.zip' })
+          if ($rbf.Count -eq 1) { $source = $rbf[0]; $kind = 'rbf' } elseif ($zips.Count -eq 1) { $source = $zips[0]; $kind = 'zip' } else { Stop-Release "no ap_core.rbf on the draft and $($zips.Count) core zips (one needed to re-run without it): attach the Quartus build's ap_core.rbf" }
+          $file = [string]$source.name
+          $assetId = [string]$source.id
+          if ($file -cnotmatch '^[A-Za-z0-9._-]+\z' -or $assetId -cnotmatch '^[0-9]+\z') { Stop-Release 'unexpected asset name or id' }
+          $target = Join-Path $in $file
+          gh api -H "Accept: application/octet-stream" "repos/$env:GH_REPO/releases/assets/$assetId" > $target
+          $length = (Get-Item -LiteralPath $target).Length
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash.ToLowerInvariant()
+          if ($length -ne $source.size) { Stop-Release "$file downloaded with $length bytes, the draft lists $($source.size)" }
+          if ($source.digest -and $source.digest -cne "sha256:$hash") { Stop-Release "$file downloaded with SHA256 $hash, the draft lists $($source.digest)" }
+          Write-Host "bitstream from $file ($kind), $length bytes, SHA256 $hash"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "kind=$kind"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "file=$file"
+          if ($kind -ceq 'rbf') {
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "rbf_id=$assetId"
+            Add-Content -Path $env:GITHUB_OUTPUT -Value "rbf_size=$length"
+          }
+
+      - name: Keep the inputs for 7 days (before anything on the draft changes)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-inputs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-inputs/
+          retention-days: 7
+          if-no-files-found: error
+
+  build:
+    name: Build the release files (no token)
+    needs: find
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TZ: UTC
+    outputs:
+      date: ${{ steps.build.outputs.date }}
+    steps:
+      - name: The inputs from the find job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-inputs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-inputs
+
+      - name: Check out the target commit of the draft
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.find.outputs.sha }}
+          submodules: true
+          persist-credentials: false
+
+      - name: Check the target commit and an existing tag
+        env:
+          TAG: ${{ inputs.tag }}
+          TARGET_SHA: ${{ needs.find.outputs.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          function Stop-Release([string]$message) { Write-Host "::error::$message"; exit 1 }
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -cne $env:TARGET_SHA) { Stop-Release "checked out $head, not the target $env:TARGET_SHA" }
+          if (-not (Test-Path -LiteralPath 'scripts/release/make_release.py' -PathType Leaf)) { Stop-Release "the target $env:TARGET_SHA has no scripts/release/make_release.py: set the target of the draft to a release commit that holds the release tooling" }
+          # Publishing keeps a tag that already exists in git, so it must already point at the target
+          $tags = @(git ls-remote --tags origin | Where-Object { ($_ -split "`t")[1] -cin @("refs/tags/$env:TAG", "refs/tags/$env:TAG^{}") })
+          if ($tags.Count) {
+            $peeled = @($tags | Where-Object { $_ -clike '*^{}' })
+            $commit = if ($peeled.Count) { ($peeled[0] -split "`t")[0] } else { ($tags[0] -split "`t")[0] }
+            if ($commit -cne $env:TARGET_SHA) { Stop-Release "the tag $env:TAG exists in git on $commit, not on the target $env:TARGET_SHA" }
+            Write-Host "the tag $env:TAG exists in git on the target"
+          }
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: mtools for fatcard.bin
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          sudo apt-get update
+          sudo apt-get install -y mtools
+          mformat --version
+
+      - name: Fetch and check the assets
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          python -B scripts/fetch_assets.py
+
+      - name: Build the release files
+        id: build
+        env:
+          TAG: ${{ inputs.tag }}
+          DATE: ${{ inputs.date }}
+          TARGET_SHA: ${{ needs.find.outputs.sha }}
+          BITSTREAM_KIND: ${{ needs.find.outputs.kind }}
+          BITSTREAM_FILE: ${{ needs.find.outputs.file }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          function Stop-Release([string]$message) { Write-Host "::error::$message"; exit 1 }
+          $in = Join-Path $env:RUNNER_TEMP 'release-inputs'
+          $work = Join-Path $env:RUNNER_TEMP 'release'
+          $out = Join-Path $work 'assets'
+          $null = New-Item -ItemType Directory -Path $work
+          $version = $env:TAG.Substring(1)
+          $cli = @('--version', $version)
+          if ($env:DATE) { $cli += @('--date', $env:DATE) }
+          if ($env:BITSTREAM_KIND -ceq 'rbf') { $cli += @('--bitstream', (Join-Path $in 'ap_core.rbf')) } else { $cli += @('--bitstream-zip', (Join-Path $in $env:BITSTREAM_FILE)) }
+          $cli += @('--out', $out, '--notes-in', (Join-Path $in 'body.md'), '--notes-out', (Join-Path $work 'notes.md'))
+          $summary = python -B scripts/release/make_release.py @cli
+          $summary = @($summary)
+          if ($summary.Count -ne 1 -or -not ($summary[0] -cmatch '^release: version (\S+) date ([0-9]{4}-[0-9]{2}-[0-9]{2}) source ([0-9a-f]{40}) bitstream ([0-9a-f]{64})\z')) { Stop-Release 'make_release.py printed no summary line' }
+          Write-Host $summary[0]
+          $built, $date, $source, $bitstream = $Matches[1], $Matches[2], $Matches[3], $Matches[4]
+          if ($built -cne $version) { Stop-Release "built version $built, the tag says $version" }
+          if ($source -cne $env:TARGET_SHA) { Stop-Release "built from $source, not from the target $env:TARGET_SHA" }
+          if ($env:BITSTREAM_KIND -ceq 'rbf' -and $bitstream -cne (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $in 'ap_core.rbf')).Hash.ToLowerInvariant()) { Stop-Release 'the bitstream of the build is not the downloaded ap_core.rbf' }
+          # Exactly the release files, the core zip the only .zip
+          $zipFile = 'BarabashkaD.Radio86RK_' + $version + '_' + $date + '.zip'
+          $expected = @($zipFile, 'romdisk-1.bin', 'romdisk-2.bin', 'romdisk-3.bin', 'romdisk-4.bin', 'romdisk-5.bin', 'card.bin', 'fatcard.bin', 'romdisk-LICENSE.txt', 'SHA256SUMS.txt')
+          $listed = @(Get-ChildItem -LiteralPath $out -Force | ForEach-Object { $_.Name })
+          if ((($listed | Sort-Object) -join '|') -cne (($expected | Sort-Object) -join '|')) { Stop-Release ('make_release.py wrote ' + ($listed -join ', ')) }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "date=$date"
+
+      - name: Hand the files and the notes to the write job (1 day)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release/
+          retention-days: 1
+          if-no-files-found: error
+
+  write:
+    name: Attach the files and the notes to the draft (by its id)
+    needs:
+      - find
+      - build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: The inputs from the find job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-inputs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-inputs
+
+      - name: The files and the notes from the build job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release
+
+      - name: Attach the files and the notes to the draft
+        shell: pwsh -NoProfile -NonInteractive -Command ". '{0}'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ needs.find.outputs.id }}
+          TARGET_SHA: ${{ needs.find.outputs.sha }}
+          RELEASE_DATE: ${{ needs.build.outputs.date }}
+          BITSTREAM_KIND: ${{ needs.find.outputs.kind }}
+          BITSTREAM_FILE: ${{ needs.find.outputs.file }}
+          RBF_ID: ${{ needs.find.outputs.rbf_id }}
+          RBF_SIZE: ${{ needs.find.outputs.rbf_size }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          # Every write goes to the draft's id or to an asset id listed on it; Get-Draft runs before
+          # each write and stops the job when the release with the tag is no longer this one draft.
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          $in = Join-Path $env:RUNNER_TEMP 'release-inputs'
+          $work = Join-Path $env:RUNNER_TEMP 'release'
+          $out = Join-Path $work 'assets'
+          $fixed = @('romdisk-1.bin', 'romdisk-2.bin', 'romdisk-3.bin', 'romdisk-4.bin', 'romdisk-5.bin', 'card.bin', 'fatcard.bin', 'romdisk-LICENSE.txt', 'SHA256SUMS.txt')
+          function Stop-Release([string]$message) { Write-Host "::error::$message"; exit 1 }
+          # The build job's date output and file names come from code of the target commit: data, checked
+          if ($env:RELEASE_DATE -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}\z') { Stop-Release 'the date from the build job is not YYYY-MM-DD' }
+          $zipFile = 'BarabashkaD.Radio86RK_' + $env:TAG.Substring(1) + '_' + $env:RELEASE_DATE + '.zip'
+          function Get-Sha256([string]$path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant() }
+          function Get-Draft {
+            $all = @((gh api --paginate --slurp "repos/$env:GH_REPO/releases?per_page=100") -join "`n" | ConvertFrom-Json | ForEach-Object { $_ })
+            $named = @($all | Where-Object { $_.tag_name -ceq $env:TAG })
+            if ($named.Count -ne 1 -or [string]$named[0].id -cne $env:RELEASE_ID) { Stop-Release "the release with the tag $env:TAG is no longer the one draft found at the start; nothing more is changed" }
+            if ($named[0].draft -ne $true) { Stop-Release "the release $env:TAG was published during the run; nothing more is changed" }
+            return $named[0]
+          }
+          function Get-Assets {
+            @((gh api --paginate --slurp "repos/$env:GH_REPO/releases/$env:RELEASE_ID/assets?per_page=100") -join "`n" | ConvertFrom-Json | ForEach-Object { $_ })
+          }
+          function Add-Asset([IO.FileInfo]$file) {
+            $null = Get-Draft
+            $path = $file.FullName
+            $fileName = $file.Name
+            if ($fileName -cnotmatch '^[A-Za-z0-9._-]+\z' -or $fileName -cnotin (@($zipFile) + $fixed)) { Stop-Release "not a release file name: $fileName" }
+            $up =(gh api -X POST -H "Content-Type: application/octet-stream" --input $path "https://uploads.github.com/repos/$env:GH_REPO/releases/$env:RELEASE_ID/assets?name=$fileName") -join "`n" | ConvertFrom-Json
+            if ($up.name -cne $fileName -or $up.size -ne $file.Length -or $up.state -cne 'uploaded') { Stop-Release "the upload of $fileName was not confirmed" }
+            Write-Host "uploaded $fileName, $($file.Length) bytes, id $($up.id)"
+          }
+          function Remove-Asset([string]$assetId) {
+            $null = Get-Draft
+            if (-not @(Get-Assets | Where-Object { [string]$_.id -ceq $assetId }).Count) { Stop-Release "asset $assetId is not on the draft" }
+            gh api -X DELETE --silent "repos/$env:GH_REPO/releases/assets/$assetId"
+            Write-Host "deleted asset $assetId"
+          }
+          function Confirm-Assets {
+            # every new file on the draft is uploaded, of the same size, of the same SHA256 where GitHub lists one
+            $assets = @(Get-Assets)
+            foreach ($file in $new) {
+              $on = @($assets | Where-Object { $_.name -ceq $file.Name })
+              if ($on.Count -ne 1 -or $on[0].state -cne 'uploaded' -or $on[0].size -ne $file.Length) { Stop-Release "$($file.Name) is not on the draft as built" }
+              if ($on[0].digest -and $on[0].digest -cne ('sha256:' + (Get-Sha256 $file.FullName))) { Stop-Release "$($file.Name) on the draft differs from the build" }
+            }
+          }
+          function Confirm-Zip {
+            $zips = @(Get-Assets | Where-Object { $_.name -like '*.zip' })
+            if ($zips.Count -ne 1 -or $zips[0].name -cne $zipFile) { Stop-Release "the draft holds $($zips.Count) zip files; only $zipFile expected" }
+          }
+
+          # Main
+          $saved = [IO.File]::ReadAllText((Join-Path $in 'body.md'), $utf8)
+          $current = Get-Draft
+          if ([string]$current.body -cne $saved) { Stop-Release 'the notes of the draft changed during the run; run the workflow again' }
+          $new = @(Get-ChildItem -LiteralPath $out -File | Sort-Object Name)
+          if ((($new | ForEach-Object { $_.Name }) -join '|') -cne ((@($zipFile) + $fixed | Sort-Object) -join '|')) { Stop-Release 'the built files are not the release files' }
+          $assets = @(Get-Assets)
+          $other = @($assets | Where-Object { $_.name -cne 'ap_core.rbf' -and $_.name -cnotin $fixed -and $_.name -cnotlike 'BarabashkaD.Radio86RK_*.zip' })
+          if ($other.Count) { Stop-Release ('not release files, remove them from the draft by hand: ' + (($other | ForEach-Object { $_.name }) -join ', ')) }
+          # 0. Without ap_core.rbf the core zip on the draft holds the only bitstream: a rebuilt zip of
+          #    that name must be the same bytes, or nothing is changed (it is never deleted first)
+          if ($env:BITSTREAM_KIND -ceq 'zip' -and $zipFile -ceq $env:BITSTREAM_FILE -and (Get-Sha256 (Join-Path $out $zipFile)) -cne (Get-Sha256 (Join-Path $in $env:BITSTREAM_FILE))) { Stop-Release 'the rebuilt core zip differs from the one on the draft; attach ap_core.rbf and run again' }
+          # 1. Each file: kept when the draft already has the same bytes, else the old file of that
+          #    name deleted by its id and the new one uploaded
+          foreach ($file in $new) {
+            $hash = Get-Sha256 $file.FullName
+            $old = @($assets | Where-Object { $_.name -ceq $file.Name })
+            $same = $old.Count -and $old[0].size -eq $file.Length -and $old[0].digest -ceq "sha256:$hash"
+            if ($old.Count -and $env:BITSTREAM_KIND -ceq 'zip' -and $file.Name -ceq $env:BITSTREAM_FILE) { $same = $same -or (Get-Sha256 (Join-Path $in $env:BITSTREAM_FILE)) -ceq $hash }
+            if ($same) { Write-Host "unchanged: $($file.Name)"; continue }
+            if ($old.Count) { Remove-Asset $old[0].id }
+            Add-Asset $file
+          }
+          Confirm-Assets
+          # 2. Core zips of an earlier version or date, only now that the new zip is on the draft
+          foreach ($stale in @($assets | Where-Object { $_.name -clike 'BarabashkaD.Radio86RK_*.zip' -and $_.name -cne $zipFile })) {
+            Write-Host "stale: $($stale.name)"
+            Remove-Asset $stale.id
+          }
+          Confirm-Zip
+          # 3. The notes, body only: the text up to the marker line as it was, then the generated block
+          $current = Get-Draft
+          if ([string]$current.body -cne $saved) { Stop-Release 'the notes of the draft changed during the run; the files are attached, run the workflow again for the notes' }
+          $notes = [IO.File]::ReadAllText((Join-Path $work 'notes.md'), $utf8)
+          if ($env:TAG -clike '*-ci-test*') {
+            # a test build: the generated block starts with a warning line (replaced with the block on a re-run)
+            $marker = '<!-- release assets (generated by CI) -->'
+            $at = if ($notes.StartsWith($marker + "`n", [StringComparison]::Ordinal)) { 0 } else { $notes.IndexOf("`n" + $marker + "`n", [StringComparison]::Ordinal) + 1 }
+            if ($at -eq 0 -and -not $notes.StartsWith($marker + "`n", [StringComparison]::Ordinal)) { Stop-Release 'the notes have no marker line' }
+            $notes = $notes.Insert($at + $marker.Length + 1, "TEST BUILD: never publish this release.`n`n")
+          }
+          $patchFile = Join-Path $work 'patch.json'
+          [IO.File]::WriteAllText($patchFile, (ConvertTo-Json -Compress -InputObject @{ body = $notes }), $utf8)
+          $edited = (gh api -X PATCH --input $patchFile "repos/$env:GH_REPO/releases/$env:RELEASE_ID") -join "`n" | ConvertFrom-Json
+          if ([string]$edited.id -cne $env:RELEASE_ID -or $edited.draft -ne $true -or [string]$edited.tag_name -cne $env:TAG -or [string]$edited.target_commitish -cne $env:TARGET_SHA) { Stop-Release 'the notes edit did not come back as this draft (id, draft, tag, target); ap_core.rbf kept' }
+          if ([string]$edited.body -cne $notes) { Write-Host '::warning::GitHub stored the notes with changes; check them on the draft' }
+          # 4. ap_core.rbf last: by the id recorded at the start, only if that same file is still there
+          if ($env:RBF_ID) {
+            $rbf = @(Get-Assets | Where-Object { [string]$_.id -ceq $env:RBF_ID })
+            if ($rbf.Count -eq 1 -and $rbf[0].name -ceq 'ap_core.rbf' -and [string]$rbf[0].size -ceq $env:RBF_SIZE) {
+              Remove-Asset $env:RBF_ID
+            } else {
+              Write-Host '::warning::ap_core.rbf on the draft changed during the run; kept'
+            }
+          }
+          foreach ($a in @(Get-Assets)) { Write-Host "asset $($a.name), $($a.size) bytes" }
+          Write-Host "Draft $env:TAG filled. Check it and publish it by hand."

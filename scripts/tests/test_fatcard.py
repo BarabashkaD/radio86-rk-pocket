@@ -206,6 +206,8 @@ class Layout(Tmp):
         self.assertEqual(len(image), len(before))
         self.assertEqual(image[0:3], before[0:3])
         self.assertEqual(image[3:6], b'\xc3\x3e\x00')
+        self.assertEqual(image[6:0x0B], fatcard.OEM_TAIL)
+        self.assertEqual(len(fatcard.OEM_TAIL), 5)
         self.assertEqual(image[0x0B:0x3E], before[0x0B:0x3E])
         self.assertEqual(image[0x3E:0x1FE], BOOT[0x3B:])
         self.assertEqual(image[0x1FE:0x200], b'\x55\xaa')
@@ -218,6 +220,20 @@ class Layout(Tmp):
         image = read(self.img)
         self.assertEqual(image[512:5 * 512], b'\x11' * 100 + bytes(2048 - 100))
         self.assertEqual(image[5 * 512:6 * 512], b'\x22' * 10 + bytes(502))
+
+    def test_oem_name_does_not_depend_on_the_mtools_version(self):
+        # mformat writes "MTOO" and its version at 03-0A; another version gives the same image
+        fatcard.format_image(self.img)
+        before = read(self.img)
+        self.assertEqual(before[3:7], b'MTOO')
+        fatcard.install_bank0(self.img, BOOT, MENU, LOADER)
+        mine = read(self.img)
+        other = os.path.join(self.tmp, 'other.img')
+        with open(other, 'wb') as f:
+            f.write(before[:3] + b'MTOO9999' + before[0x0B:])
+        fatcard.install_bank0(other, BOOT, MENU, LOADER)
+        self.assertEqual(read(other), mine)
+        self.assertEqual(mine[3:0x0B], b'\xc3\x3e\x00' + fatcard.OEM_TAIL)
 
     def test_install_bank0_refuses(self):
         fatcard.format_image(self.img)
@@ -396,6 +412,47 @@ class Files(Tmp):
         for other in images[1:]:
             self.assertEqual(other, images[0])
         self.assertEqual((fatcard.FAT_TIME, fatcard.FAT_DATE), (0x6000, 0x2821))
+
+    def test_fix_times(self):
+        # the image of test_entries_not_listed: a long-name set, an E5 slot, a label; every time field
+        # of the short entries set to other values, then fix_times: exactly those bytes change
+        fatcard.format_image(self.img)
+        fatcard.add_files(self.img, [('F1.RKR', b'1' * 30)])
+        with open(os.path.join(self.tmp, 'LongFileName.rkr'), 'wb') as f:
+            f.write(b'2' * 40)
+        fatcard.run_mtools('mcopy', self.img, '-D', 'o', '-m', 'LongFileName.rkr', '::LongFileName.rkr')
+        fatcard.add_files(self.img, [('F2.RKR', b'3' * 50), ('F3.RKR', b'4' * 60)])
+        fatcard.label_image(self.img, 'RK86CARD')
+        fatcard.run_mtools('mdel', self.img, '::F2.RKR')
+        image = bytearray(read(self.img))
+        root = fatcard.bpb(bytes(image))['root_start'] * 512
+        raw = raw_entries(bytes(image))
+        short = [s for s, e in raw if e[0] != 0xE5 and e[11] != 0x0F]
+        others = [s for s, e in raw if e[0] == 0xE5 or e[11] == 0x0F]
+        self.assertTrue([s for s, e in raw if e[11] == 0x0F], 'no long-name entry')
+        self.assertTrue([s for s, e in raw if e[0] == 0xE5], 'no deleted entry')
+        self.assertTrue([s for s, e in raw if e[11] == 0x08], 'no label')
+        self.assertEqual(len(short), 4)             # F1, the long name's short entry, F3, the label
+        fields = list(range(0x0D, 0x14)) + list(range(0x16, 0x1A))
+        for s in short:
+            for i, k in enumerate(fields):
+                image[root + 32 * s + k] = 0x40 + i
+        before = bytes(image)
+        with open(self.img, 'wb') as f:
+            f.write(before)
+        fatcard.fix_times(self.img)
+        after = read(self.img)
+        fixed = b'\x00\x00\x60\x21\x28\x21\x28' + b'\x00\x60\x21\x28'
+        changed = set()
+        for s in short:
+            self.assertEqual(bytes(after[root + 32 * s + k] for k in fields), fixed, s)
+            changed |= {root + 32 * s + k for k in fields}
+        for s in others:                            # E5 and long-name entries untouched
+            self.assertEqual(after[root + 32 * s:root + 32 * s + 32], before[root + 32 * s:root + 32 * s + 32], s)
+        expect = bytearray(before)                  # every other byte of the image unchanged
+        for i in changed:
+            expect[i] = after[i]
+        self.assertTrue(bytes(expect) == after, 'fix_times changed bytes outside 0D-13 and 16-19')
 
 
 class Window(unittest.TestCase):
