@@ -188,7 +188,17 @@ Copy `card.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in the 
 
 ### FAT16 card
 
-An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader. From the first release after 0.8.2 on, the release page has `fatcard.bin`; to build it yourself:
+An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes, and BASIC, EDITOR/ASSEMBLER, EDITOR/DISASSEMBLER and Othello from Kiselev's ROM disk). Bank 0 holds a boot stage, a file menu and a loader.
+
+<p>
+  <img src="images/pocket_fatcard_page1.jpeg" alt="The FAT16 card menu on an Analogue Pocket, page 1 of 3: BOMBER.GAM to PAKET.RKR" width="250">
+  <img src="images/pocket_fatcard_page2.jpeg" alt="The FAT16 card menu on an Analogue Pocket, page 2 of 3: PAKET2.RKR to TOCHKI.RKR" width="250">
+  <img src="images/pocket_fatcard_page3.jpeg" alt="The FAT16 card menu on an Analogue Pocket, page 3 of 3: UDAW.GAM to OTHELLO.RKR" width="250">
+</p>
+
+The menu's three pages with the 52 files: name, type and load address range; the arrow marks the selected file.
+
+From the first release after 0.8.2 on, the release page has `fatcard.bin`; to build it yourself:
 
 The builder needs mtools: on Windows the MSYS2 UCRT64 package `mingw-w64-ucrt-x86_64-mtools`, on Linux `apt install mtools`; set `MTOOLS_DIR` to their directory, or put them on PATH.
 
