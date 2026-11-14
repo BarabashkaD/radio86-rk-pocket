@@ -14,7 +14,7 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 - 0.8.2 (2026-11-11) ran on a Pocket by the maintainer.
 - An earlier PSRAM test build (10e6cf4, before the J6 card) ran on a Pocket by the maintainer (2026-11-13).
 - The test build 0.8.3-j6-test with the 0.9.0 changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
-- Not run on a Pocket yet: the package without ROM disk images, a fresh install without `romdisk.bin`, 0.8.2's images with this core (expected to keep working), and the images built for a release (by `scripts/release/make_release.py`). The release workflow (`.github/workflows/release.yml`) ran twice on a test draft (2026-11-14); no release made with it yet.
+- 0.9.0 ran on a Pocket by the maintainer, on the release's files (2026-11-14). It is the first release whose files were made by the release workflow (`.github/workflows/release.yml`).
 
 ## Features
 
