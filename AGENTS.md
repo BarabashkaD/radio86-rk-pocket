@@ -4,7 +4,7 @@ Instructions for coding agents. User docs: `README.md`. Design, bridge map, data
 
 ## 1. Repository
 
-openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Pocket. Latest release 0.8.2 (2026-11-11); the unreleased features since then: section 7.
+openFPGA core of the Radio-86RK (KR580VM80A, an i8080 clone) for the Analogue Pocket. Latest release 0.9.0 (2026-11-14); its features: section 7.
 
 - Identity (`package/core/core.json`, `package/platform/radio86rk.json`, `scripts/package.py`): author `BarabashkaD`, shortname `Radio86RK`, core id `BarabashkaD.Radio86RK`; platform `radio86rk` ("Radio-86RK", category Computer); one bitstream `bitstream.rbf_r`; dock yes, analog output no, sleep no.
 - Machine: `rk86_machine16` from the submodule, used unchanged: the original's 16 MHz timing, each chip (8224 and К155ИЕ4 clocks, 8080, 8257, 8275, 8255, video path, board glue) to its data sheet. Where the data sheets are silent, the decisions and planned real-hardware checks are in the fork's `src/rtl/rk86_16/README.md`.
@@ -390,7 +390,7 @@ Unzip the package onto the SD card root; the core appears as "Radio-86RK". Upgra
 
 ## 7. Features
 
-Unreleased since 0.8.2: the ROM disk in the PSRAM (images up to 8 MB), the J6 bank card, the 32 KB mirror, the J6 card menu and the FAT16 card, the package without ROM disk images (the images as release assets) and the release workflow. The rest is in 0.8.2.
+New in 0.9.0: the ROM disk in the PSRAM (images up to 8 MB), the J6 bank card, the 32 KB mirror, the J6 card menu and the FAT16 card, the package without ROM disk images (the images as release assets) and the release workflow. The rest is as in 0.8.2.
 
 - `rk86_machine16`: `ce16` on 64 of 297 `clk_74a` ticks (16 MHz timebase); CPU 1.778 MHz (Vslav's 8080); 8257 on Φ2; 8 MHz dots; 516 x 310 raster at 50 Hz; one DMA HOLD period per character.
 - The board's address map and DMA wiring, reproduced (`fpga/README.md`, The 16 MHz machine): one device per 8 KB block (A15-A13), each 8255's 4 registers repeating every 4 bytes; the 8257 on channel 2 only, memory to the 8275, MEMR not connected; DMA reads decoded like CPU reads.
@@ -408,8 +408,8 @@ Unreleased since 0.8.2: the ROM disk in the PSRAM (images up to 8 MB), the J6 ba
 
 ## 8. Limits and known issues
 
-- Hardware: 0.8.2 run on a Pocket by the maintainer (2026-11-12), the 64 KB game disks included; 0.8.0 (2026-11-11), Tetris included; 0.6.1-0.7.1 on OS 2.7. Unreleased: the PSRAM test build (10e6cf4, before the J6 bank card) and the test build 0.8.3-j6-test (e2496b7) run on a Pocket by the maintainer (2026-11-13); in the latter `card.bin` (the card menu with Kiselev's disk and the five game disks) and `fatcard.bin` (52 files) worked; no further detail is known. Not run on a Pocket: the package without ROM disk images, a fresh install without `romdisk.bin`, 0.8.2's images with this core (expected to keep working), and the images built by `make_release.py` or the release workflow (`fatcard.bin` has fixed FAT times and a fixed OEM text since 0.8.3-j6-test, so its bytes differ from that build's). Nothing else is hardware-verified.
-- Simulation of the unreleased features: remote runs passed at d768b7a (`cart_ppi` with 12 faults, `slot_loader`, `psram`, `boot`, `nocart`, `reset`, `menu64`, `card`), `boot` again at c49efc4 (the current system TB); `card` re-run at c49efc4: PASS (about 163 min); the system scenario `fatcard` at cf05986: PASS (about 177 min); the release-tier `xonix` and `game` not re-run. Quartus build at e2496b7: PASS, setup slack +1.667 ns, hold +0.120 ns, 69 of 308 RAM blocks, 3327 of 18480 ALMs.
+- Hardware: 0.8.2 run on a Pocket by the maintainer (2026-11-12), the 64 KB game disks included; 0.8.0 (2026-11-11), Tetris included; 0.6.1-0.7.1 on OS 2.7. Before 0.9.0: the PSRAM test build (10e6cf4, before the J6 bank card) and the test build 0.8.3-j6-test (e2496b7) run on a Pocket by the maintainer (2026-11-13); in the latter `card.bin` (the card menu with Kiselev's disk and the five game disks) and `fatcard.bin` (52 files) worked; no further detail is known. Not run on a Pocket: the package without ROM disk images, a fresh install without `romdisk.bin`, 0.8.2's images with this core (expected to keep working), and the images built by `make_release.py` or the release workflow (`fatcard.bin` has fixed FAT times and a fixed OEM text since 0.8.3-j6-test, so its bytes differ from that build's). Nothing else is hardware-verified.
+- Simulation of the 0.9.0 features: remote runs passed at d768b7a (`cart_ppi` with 12 faults, `slot_loader`, `psram`, `boot`, `nocart`, `reset`, `menu64`, `card`), `boot` again at c49efc4 (the current system TB); `card` re-run at c49efc4: PASS (about 163 min); the system scenario `fatcard` at cf05986: PASS (about 177 min); the release-tier `xonix` and `game` not re-run; 0.9.0 was released without the release tier (the maintainer's decision, 2026-11-14: the Pocket test on the release's files instead). Quartus build at e2496b7: PASS, setup slack +1.667 ns, hold +0.120 ns, 69 of 308 RAM blocks, 3327 of 18480 ALMs.
 - Not limits (the original's design, reproduced; do not list them here): the fixed address map (one device per 8 KB block, registers repeating) and the 8257 wiring (channel 2 only, memory to the 8275 only, MEMR not connected).
 - No savestates, no sleep, no tape (`tape_in` high; slot 3 reserved), Dock USB keyboard unused. Interact 0x11C-0x144 reserved.
 - Programs are expected to run slower than in MAME or Emu80 (one HOLD period per character, as the data sheets give it); no real-chip measurement is known.
