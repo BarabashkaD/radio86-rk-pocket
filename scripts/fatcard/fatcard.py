@@ -11,7 +11,8 @@ Usage: python -B scripts/fatcard/fatcard.py [--out build/fatcard] [--sim] [--pk 
 Layout (8388608 bytes): mformat -C -T 16384 -h 1 -s 32 -R 128 -d 1 -r 32 -c 1 -L 64 -N 00000000:
 512-byte sectors, 1 sector per cluster, 128 reserved sectors (bank 0 of the card), 1 FAT of 64
 sectors, 512 root entries, FAT16. Bank 0: sector 0 the boot stage (03-05 and 3E-1FD written by
-install_bank0, 00-02, the BPB and 55 AA as mformat writes them; mlabel writes the label at 2B-35),
+install_bank0, which also writes OEM_TAIL over mformat's version text at 06-0A; 00-02, the BPB and
+55 AA as mformat writes them; mlabel writes the label at 2B-35),
 sectors 1-4 the menu, sector 5 the loader, sectors 6-127 unused. The 8080 code reads the layout
 from the BPB.
 
@@ -27,11 +28,15 @@ error), else from PATH. Every call runs in the image's directory with relative n
 on paths with non-ASCII characters and reads a drive-letter mcopy target as a DOS drive), stdin closed
 (mcopy waits for an answer on a name clash) and a timeout.
 
-Reproducible on every machine: mtools writes FAT times in local time (on Windows the label follows
+Independent of the time zone (checked with mtools 4.0.50 on Windows; Ubuntu's mtools on the first
+CI run): mtools writes FAT times in local time (on Windows the label follows
 TZ and the files the system zone; on Linux both follow TZ), so build_image overwrites the time and
 date fields of the label and of every file with FAT_TIME and FAT_DATE (2000-01-01 12:00:00,
-fix_times). mtools still gets FIXED_MTIME (mcopy -m), SOURCE_DATE_EPOCH and TZ=UTC0. No test or
-document records a hash of an image.
+fix_times). mtools still gets FIXED_MTIME (mcopy -m), SOURCE_DATE_EPOCH and TZ=UTC0. mformat
+writes its version into the OEM name (03-0A, "MTOO4050" for 4.0.50); install_bank0 overwrites 03-05
+with the jump and 06-0A with OEM_TAIL, so that text does not reach the image. Other bytes as an
+mtools version writes them are checked only by layout_problems; no test or document records a
+hash of an image.
 
 Listing rules (directory, read_file, the 8080 menu): the root directory up to the first entry whose
 name starts with 00; E5 (deleted), attribute 0F (long name) and attribute bits 1E (hidden, system,
@@ -67,6 +72,7 @@ MENU_SECTOR, MENU_MAX = 1, 2048  # sectors 1-4
 LOADER_SECTOR, LOADER_MAX = 5, 512
 BOOT_SIZE = 0x1FB                # bytes 03-1FD of sector 0; only 03-05 and 3E-1FD are written
 BOOT_JUMP = b'\xc3\x3e\x00'      # JMP 003E
+OEM_TAIL = b'RK86 '              # bytes 06-0A, the rest of the OEM name (mformat writes its version there)
 LOADER_RAM = (0x7400, 0x75FF)
 LOADER_END = 0x75C0              # the loader's code and variables end here; 75C0-75FF is its stack
 RAM_TOP = 0x73FF                 # the loader's rule (END <= 73FFh): 7400-75FF loader, 7600-7FFF monitor
@@ -261,8 +267,9 @@ def fix_times(path):
 
 
 def install_bank0(path, boot, menu, loader):
-    """Writes the boot stage (03-05 from boot[0:3], 3E-1FD from boot[3B:]), the menu (1-2048 bytes,
-    sectors 1-4) and the loader (1-512 bytes, sector 5), each zero-padded; sector 6 untouched."""
+    """Writes the boot stage (03-05 from boot[0:3], 3E-1FD from boot[3B:]), OEM_TAIL at 06-0A (so
+    the image does not carry mformat's version), the menu (1-2048 bytes, sectors 1-4) and the loader
+    (1-512 bytes, sector 5), each zero-padded; sector 6 untouched."""
     if len(boot) != BOOT_SIZE or bytes(boot[0:3]) != BOOT_JUMP:
         raise ValueError('boot: %d bytes for 03-1FD starting C3 3E 00 expected' % BOOT_SIZE)
     if not 1 <= len(menu) <= MENU_MAX:
@@ -274,7 +281,7 @@ def install_bank0(path, boot, menu, loader):
         raise ValueError('%s is not a card image: %s' % (path, '; '.join(problems)))
     with open(path, 'r+b') as f:
         f.seek(3)
-        f.write(bytes(boot[0:3]))
+        f.write(bytes(boot[0:3]) + OEM_TAIL)
         f.seek(0x3E)
         f.write(bytes(boot[0x3B:]))
         f.seek(MENU_SECTOR * 512)
@@ -502,8 +509,8 @@ def build_image(path, files, boot, menu, loader, label='RK86CARD'):
     install_bank0(path, boot, menu, loader)
     image = _read(path)
     problems = layout_problems(image)
-    if image[3:6] != BOOT_JUMP:
-        problems.append('bytes 03-05 %s' % image[3:6].hex(' ').upper())
+    if image[3:11] != BOOT_JUMP + OEM_TAIL:
+        problems.append('bytes 03-0A %s' % image[3:11].hex(' ').upper())
     if problems:
         raise RuntimeError('%s: %s' % (path, '; '.join(problems)))
     return directory(image)

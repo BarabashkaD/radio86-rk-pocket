@@ -6,7 +6,7 @@ end (hi, lo), the payload, E6, the checksum (build_romdisks.checksum; read_tape 
 kiselev_files(rom): the programs of Kiselev's 32 KB ROM disk image as (8.3 name, tape) pairs, from
 the table of his loader (ROM start, ROM end, RAM start). XONIX and TETRIS of that table are
 byte-identical to the pk tapes XONIX1.RKR and TETRIS4.RKR and are left out. The extracted programs
-stay GPL-3.0 (see LICENSES.md).
+keep the terms of Kiselev's disk (treated as GPL-3.0; see LICENSES.md).
 """
 import os
 import sys

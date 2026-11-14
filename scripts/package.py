@@ -104,9 +104,10 @@ MAX_LIST_OPTIONS = 20
 
 
 def is_iso_date(s):
-    """A real calendar date as YYYY-MM-DD (the library's post generator parses it without a rescue)."""
+    """A real calendar date as YYYY-MM-DD, ASCII digits only (the library's post generator parses it
+    without a rescue)."""
     try:
-        return (isinstance(s, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', s) is not None
+        return (isinstance(s, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', s) is not None
                 and datetime.date.fromisoformat(s) is not None)
     except (ValueError, TypeError):
         return False
