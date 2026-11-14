@@ -376,7 +376,8 @@ jobs:
             Remove-Asset $stale.id
           }
           Confirm-Zip
-          # 3. The notes, body only: the text up to the marker line as it was, then the generated block
+          # 3. The notes: the text up to the marker line as it was, then the generated block; tag, target
+          # and draft sent again (a body-only edit of a draft makes GitHub drop its tag name: dry run 2026-11-14)
           $current = Get-Draft
           if ([string]$current.body -cne $saved) { Stop-Release 'the notes of the draft changed during the run; the files are attached, run the workflow again for the notes' }
           $notes = [IO.File]::ReadAllText((Join-Path $work 'notes.md'), $utf8)
@@ -388,7 +389,7 @@ jobs:
             $notes = $notes.Insert($at + $marker.Length + 1, "TEST BUILD: never publish this release.`n`n")
           }
           $patchFile = Join-Path $work 'patch.json'
-          [IO.File]::WriteAllText($patchFile, (ConvertTo-Json -Compress -InputObject @{ body = $notes }), $utf8)
+          [IO.File]::WriteAllText($patchFile, (ConvertTo-Json -Compress -InputObject @{ body = $notes; tag_name = $env:TAG; target_commitish = $env:TARGET_SHA; draft = $true }), $utf8)
           $edited = (gh api -X PATCH --input $patchFile "repos/$env:GH_REPO/releases/$env:RELEASE_ID") -join "`n" | ConvertFrom-Json
           if ([string]$edited.id -cne $env:RELEASE_ID -or $edited.draft -ne $true -or [string]$edited.tag_name -cne $env:TAG -or [string]$edited.target_commitish -cne $env:TARGET_SHA) { Stop-Release 'the notes edit did not come back as this draft (id, draft, tag, target); ap_core.rbf kept' }
           if ([string]$edited.body -cne $notes) { Write-Host '::warning::GitHub stored the notes with changes; check them on the draft' }
