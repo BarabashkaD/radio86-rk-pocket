@@ -28,15 +28,17 @@ error), else from PATH. Every call runs in the image's directory with relative n
 on paths with non-ASCII characters and reads a drive-letter mcopy target as a DOS drive), stdin closed
 (mcopy waits for an answer on a name clash) and a timeout.
 
-Independent of the time zone (checked with mtools 4.0.50 on Windows; Ubuntu's mtools on the first
-CI run): mtools writes FAT times in local time (on Windows the label follows
+Independent of the time zone and of the mtools version's free-space bytes (checked with mtools
+4.0.50 on Windows and 4.0.43 on Ubuntu 24.04): mtools writes FAT times in local time (on Windows the label follows
 TZ and the files the system zone; on Linux both follow TZ), so build_image overwrites the time and
 date fields of the label and of every file with FAT_TIME and FAT_DATE (2000-01-01 12:00:00,
 fix_times). mtools still gets FIXED_MTIME (mcopy -m), SOURCE_DATE_EPOCH and TZ=UTC0. mformat
 writes its version into the OEM name (03-0A, "MTOO4050" for 4.0.50); install_bank0 overwrites 03-05
-with the jump and 06-0A with OEM_TAIL, so that text does not reach the image. Other bytes as an
-mtools version writes them are checked only by layout_problems; no test or document records a
-hash of an image.
+with the jump and 06-0A with OEM_TAIL, so that text does not reach the image. mformat 4.0.43
+(Ubuntu 24.04) leaves uninitialised memory in the last sector of the image; build_image ends with
+clear_unused, which zeroes every byte that holds no data (free clusters, file tails, unused
+directory, FAT and reserved space). Other bytes as an mtools version writes them are checked only
+by layout_problems; no test or document records a hash of an image.
 
 Listing rules (directory, read_file, the 8080 menu): the root directory up to the first entry whose
 name starts with 00; E5 (deleted), attribute 0F (long name) and attribute bits 1E (hidden, system,
@@ -290,6 +292,55 @@ def install_bank0(path, boot, menu, loader):
         f.write(bytes(loader) + bytes(LOADER_MAX - len(loader)))
 
 
+def clear_unused(path):
+    """Zeroes every byte of the image that holds no data: reserved sectors after the loader's
+    (6-127), FAT entries past the last cluster, root entries from the first 00 entry on, free
+    clusters (FAT entry 0), the rest of each listed file's last cluster after its size, and sectors
+    past the last cluster. mformat 4.0.43 (Ubuntu 24.04) leaves uninitialised memory in the last
+    sector; with this the image's bytes do not depend on what an mtools version leaves in free space.
+    Returns the number of bytes that were not zero."""
+    image = bytearray(_read(path))
+    p = bpb(bytes(image))
+    bps, spc = p['bytes_per_sector'], p['sectors_per_cluster']
+    unit = bps * spc
+    spans = [(LOADER_SECTOR + 1) * bps, p['reserved'] * bps]
+    spans = [(spans[0], spans[1])] if spans[0] < spans[1] else []
+    fat = p['fat_start'] * bps
+    for n in range(p['fats']):
+        start = fat + n * p['sectors_per_fat'] * bps
+        spans.append((start + 2 * (p['clusters'] + 2), start + p['sectors_per_fat'] * bps))
+    root = p['root_start'] * bps
+    for slot in range(p['root_entries']):
+        if image[root + 32 * slot] == 0:
+            spans.append((root + 32 * slot, root + 32 * p['root_entries']))
+            break
+    data = p['data_start'] * bps
+    run = None
+    for c in range(2, p['clusters'] + 2):
+        free = struct.unpack_from('<H', image, fat + 2 * c)[0] == 0
+        if free and run is None:
+            run = c
+        if not free and run is not None:
+            spans.append((data + (run - 2) * unit, data + (c - 2) * unit))
+            run = None
+    if run is not None:
+        spans.append((data + (run - 2) * unit, data + p['clusters'] * unit))
+    spans.append((data + p['clusters'] * unit, len(image)))
+    for d in directory(bytes(image)):
+        if d['size'] and d['size'] % unit:
+            last = cluster_chain(bytes(image), d['file'])[-1]
+            spans.append((data + (last - 2) * unit + d['size'] % unit, data + (last - 1) * unit))
+    cleared = 0
+    for a, b in spans:
+        if a < b:
+            cleared += (b - a) - image.count(0, a, b)
+            image[a:b] = bytes(b - a)
+    if cleared:
+        with open(path, 'r+b') as f:
+            f.write(image)
+    return cleared
+
+
 def loader_window(start, end):
     """'A' (the loader at 7400-75FF) when [start, end] lies in 0000-73FF (RAM_TOP, the loader's own
     END rule); else ValueError."""
@@ -500,13 +551,14 @@ def card_files(pk_dir, romdisk):
 
 
 def build_image(path, files, boot, menu, loader, label='RK86CARD'):
-    """format_image, label_image, add_files, fix_times, install_bank0 (last), then the layout check;
-    returns directory() of the result."""
+    """format_image, label_image, add_files, fix_times, install_bank0, clear_unused (last), then the
+    layout check; returns directory() of the result."""
     format_image(path)
     label_image(path, label)
     add_files(path, files)
     fix_times(path)
     install_bank0(path, boot, menu, loader)
+    clear_unused(path)
     image = _read(path)
     problems = layout_problems(image)
     if image[3:11] != BOOT_JUMP + OEM_TAIL:
