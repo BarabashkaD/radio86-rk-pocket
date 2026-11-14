@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-11-14)
 
 - ROM disk in the Pocket's PSRAM (`cram0`, die 0, asynchronous mode): the 64 KB block RAM is gone (64 M10K blocks freed). New `pocket_psram.v` (one state machine on `clk_74a`, 13 ticks per access, DQ sampled a tick before OE#/CE# rise, no new clock) and `pocket_psram.sdc`. After the power-up reset it waits tPU (151 us), writes the BCR to 9D1Fh through CRE (asynchronous mode, whatever an earlier core left), then raises `ready`; APF slot requests wait for `ready`.
 - Data slot 2 takes up to 8388608 bytes (8 MB; `data.json` `size_maximum`). A bridge word goes to the PSRAM whole (two 16-bit writes). The font and the monitor keep their block RAM (`pocket_rom8.v` is the font only).

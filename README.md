@@ -10,17 +10,17 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 
 ## Status
 
-- Latest release: [0.8.2](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.8.2) (2026-11-11), run on a Pocket by the maintainer. Changes: [CHANGELOG.md](CHANGELOG.md).
-- Not released yet: ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`), the FAT16 card (`fatcard.bin`) and the package without ROM disk images (the images as separate downloads).
+- Latest release: [0.9.0](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.9.0) (2026-11-14): ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`), the FAT16 card (`fatcard.bin`) and the package without ROM disk images (the images as separate downloads). Changes: [CHANGELOG.md](CHANGELOG.md).
+- 0.8.2 (2026-11-11) ran on a Pocket by the maintainer.
 - An earlier PSRAM test build (10e6cf4, before the J6 card) ran on a Pocket by the maintainer (2026-11-13).
-- The test build 0.8.3-j6-test with these changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
+- The test build 0.8.3-j6-test with the 0.9.0 changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
 - Not run on a Pocket yet: the package without ROM disk images, a fresh install without `romdisk.bin`, 0.8.2's images with this core (expected to keep working), and the images built for a release (by `scripts/release/make_release.py`). The release workflow (`.github/workflows/release.yml`) ran twice on a test draft (2026-11-14); no release made with it yet.
 
 ## Features
 
 - The original's timing: 16 MHz timebase, CPU 1.778 MHz, 8 MHz dots, 50 Hz frames. CPU, DMA, CRT controller and PPI follow their data sheets; the video DMA takes CPU time as on the original ([fpga/README.md](fpga/README.md#the-16-mhz-machine)).
 - ROM disk images as separate downloads: Kiselev's ROM disk with a program menu (at its source), 5 game disks (64 KB each) with 48 games, a J6 card menu and a FAT16 card ([ROM disk images](#rom-disk-images)).
-- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. From the first release after 0.8.2 both are on the release page; both can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
+- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. From 0.9.0 on both are on the release page; both can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
 - On-screen keyboard (L+R): the 67 real keys, LAT and RUS, Shift and Ctrl, three palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or A B X Y.
 - Screen: 408 x 300 at 60 Hz, about 25 picture updates per second. Sound: the beeper (INTE), 48 kHz.
@@ -168,12 +168,12 @@ An image above 64 KB is a J6 bank card. Old programs and the monitor's `R` see t
 - Power-up, a load of the ROM disk slot and Core Settings > Cold boot select bank 0. Core Settings > Reset keeps the bank, as a real card has no reset line on J6.
 - A program that writes A002/A003 (for example LORUNNER.GAM and SDEMISE.GAM drive port C for sound), or Ctrl-C during a load, can leave another bank selected. Then Cold boot or load the ROM disk slot again.
 - The bank cannot be read back.
-- Card images are not in the package: `card.bin` and `fatcard.bin` are release assets from the first release after 0.8.2 on ([ROM disk images](#rom-disk-images)), or build them (below).
+- Card images are not in the package: `card.bin` and `fatcard.bin` are release assets from 0.9.0 on ([ROM disk images](#rom-disk-images)), or build them (below).
 - A reference design of a real card for J6 (never built): [hardware/j6-bank-card.md](hardware/j6-bank-card.md).
 
 ### J6 card menu
 
-A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. From the first release after 0.8.2 on, the release page has `card.bin`; to build it yourself:
+A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. From 0.9.0 on, the release page has `card.bin`; to build it yourself:
 
 ```text
 git clone --recursive <repo url>
@@ -198,7 +198,7 @@ An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes
 
 The menu's three pages with the 52 files: name, type and load address range; the arrow marks the selected file.
 
-From the first release after 0.8.2 on, the release page has `fatcard.bin`; to build it yourself:
+From 0.9.0 on, the release page has `fatcard.bin`; to build it yourself:
 
 The builder needs mtools: on Windows the MSYS2 UCRT64 package `mingw-w64-ucrt-x86_64-mtools`, on Linux `apt install mtools`; set `MTOOLS_DIR` to their directory, or put them on PATH.
 
