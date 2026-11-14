@@ -413,6 +413,50 @@ class Files(Tmp):
             self.assertEqual(other, images[0])
         self.assertEqual((fatcard.FAT_TIME, fatcard.FAT_DATE), (0x6000, 0x2821))
 
+    def test_clear_unused(self):
+        # what an mtools version may leave in space that holds no data (mformat 4.0.43 leaves
+        # uninitialised memory in the last sector): clear_unused zeroes it and nothing else
+        files = [('A.RKR', tape.make_tape(0, b'a' * 600)), ('B.GAM', b'b' * 700)]
+        fatcard.build_image(self.img, files, BOOT, MENU, LOADER)
+        clean = read(self.img)
+        self.assertEqual(fatcard.clear_unused(self.img), 0)          # build_image ends clean
+        self.assertEqual(read(self.img), clean)
+        p = fatcard.bpb(clean)
+        data = p['data_start'] * 512
+        chain_a = fatcard.cluster_chain(clean, 'A.RKR')
+        chain_b = fatcard.cluster_chain(clean, 'B.GAM')
+        used = max(chain_a + chain_b)
+        size = {d['file']: d['size'] for d in fatcard.directory(clean)}
+        self.assertTrue(size['A.RKR'] % 512 and size['B.GAM'] % 512)
+        junk = {
+            7 * 512: 'reserved sector 7',
+            p['fat_start'] * 512 + 2 * (p['clusters'] + 2): 'FAT past the last cluster',
+            p['root_start'] * 512 + 32 * 5: 'root entry behind the 00 entry',
+            data + (used + 3 - 2) * 512 + 100: 'a free cluster',
+            data + (chain_a[-1] - 2) * 512 + size['A.RKR'] % 512: 'the tail of A.RKR',
+            data + (chain_b[-1] - 2) * 512 + 511: 'the last byte of B.GAM\'s last cluster',
+            len(clean) - 140: 'the last sector',
+            len(clean) - 1: 'the last byte',
+        }
+        dirty = bytearray(clean)
+        for at in junk:
+            dirty[at] = 0xA5
+        with open(self.img, 'wb') as f:
+            f.write(dirty)
+        self.assertEqual(fatcard.clear_unused(self.img), len(junk))
+        self.assertEqual(read(self.img), clean)
+        for name, payload in files:
+            self.assertEqual(fatcard.read_file(read(self.img), name), payload)
+        # file data up to each size, the entries' names and bank 0 are never touched
+        kept = bytearray(clean)
+        for at in (data + (chain_a[0] - 2) * 512, data + (chain_b[-1] - 2) * 512 + size['B.GAM'] % 512 - 1,
+                   p['root_start'] * 512 + 32 * 2 + 0x0C, 5 * 512 + 3, 0x3E):
+            kept[at] ^= 0xFF
+        with open(self.img, 'wb') as f:
+            f.write(kept)
+        self.assertEqual(fatcard.clear_unused(self.img), 0)
+        self.assertEqual(read(self.img), bytes(kept))
+
     def test_fix_times(self):
         # the image of test_entries_not_listed: a long-name set, an E5 slot, a label; every time field
         # of the short entries set to other values, then fix_times: exactly those bytes change
