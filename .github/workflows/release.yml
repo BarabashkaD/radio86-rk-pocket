@@ -5,7 +5,8 @@
 # Three jobs. find (token, API reads only, no checkout): the one release with the tag, refused
 # unless it is a draft whose target is on main; ap_core.rbf (on a re-run without it: the core zip
 # already on the draft) and the notes kept as a run artifact for 7 days before anything changes.
-# build (no token, contents: read): the target commit, scripts/release/make_release.py, the files
+# build (no token, contents: read): the target commit with its submodules (lib/retroMachines with
+# its lib/retroICs, lib/retro8080Software: recursive), scripts/release/make_release.py, the files
 # and the notes as an artifact. write (token, environment release, no checkout, no repository
 # code): before every write it checks again that the release with the tag is still that one draft,
 # then writes by its id only (asset uploads, asset deletes by asset id, the notes body), and
@@ -170,7 +171,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.find.outputs.sha }}
-          submodules: true
+          submodules: recursive
           persist-credentials: false
 
       - name: Check the target commit and an existing tag

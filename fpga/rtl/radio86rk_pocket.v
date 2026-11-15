@@ -1,5 +1,5 @@
 // The Radio-86RK board of the Analogue Pocket around rk86_machine16, the machine with the original
-// 16 MHz timing (the core's src/rtl/rk86_16, spec 0.8.0), in one clock domain, clk_74a: the 16 MHz
+// 16 MHz timing (retroMachines' machines/rk86, spec 0.8.0), in one clock domain, clk_74a: the 16 MHz
 // clock enable, the reset, the memory, the font, the ROM disk device, the keyboard, the native raster
 // (pocket_raster) and the 408 x 300 display window (pocket_window), the beeper. The ROM disk image
 // itself is in the PSRAM (pocket_psram in pocket_system): romdisk_address out, romdisk_data back.

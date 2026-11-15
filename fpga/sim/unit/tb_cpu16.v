@@ -1,6 +1,6 @@
 // rk86_machine16 with the CPU test program (fpga/sim/cpu16/cpu_test.asm, spec 9.1-2) in place of the
 // monitor (+bios=cpu_test.hex, 2048 bytes, written by run_sim.py) on the Pocket memory: pocket_memory
-// through fpga/sim/memory/tb_rk86_mem16.v (the ports of the fork's model; RAM mem.mem.ram); ce16 =
+// through fpga/sim/memory/tb_rk86_mem16.v (the ports of the machine TB's model; RAM mem.mem.ram); ce16 =
 // 64 of 297 clk, reset for the first 200 ce16. Frames (spec 7): VRTC rises counted from the first VRTC
 // rise after the 8275's VE rises (frame 0 starts there; VE must rise within 3 200 000 ce16); the run ends
 // when the program writes A5 to 0010, within 30 frames. Checks:
@@ -22,7 +22,8 @@
 //     DACK, the byte it latched while WR was low) whose address (bus_a while WR is low) is in E000-FFFF,
 //     the byte must be the program's byte at that address (ERROR: cpu16: phase 7 DMA byte); at least
 //     2048 such bytes by the end (ERROR: cpu16: phase 7: <n> DMA bytes from the program)
-// The checks probe the chip instances (dut.cpu, dut.dma, dut.crt, dut.ppa) and pocket_memory; they are
+// The checks probe the chip instances (dut.cpu.core, the 8080 inside intel_8080a; dut.dma, dut.crt, dut.ppa)
+// and pocket_memory; they are
 // sampled at the falling edge of clk, between the enables.
 `include "cpu_power_up.vh"
 `default_nettype none
@@ -68,7 +69,7 @@ end endtask
 //---------------- power-up, the program
 reg [8*512-1:0] bios_file;
 initial begin
-    `CPU16_ZERO(dut.cpu)
+    `CPU16_ZERO(dut.cpu.core)
     if (!$value$plusargs("bios=%s", bios_file)) begin $display("FATAL: cpu16: no +bios=<hex file>"); $finish; end
     $readmemh(bios_file, mem.bios);
     if ((^mem.bios[0]) === 1'bx || (^mem.bios[2047]) === 1'bx) begin
@@ -190,7 +191,7 @@ always @(negedge clk) if (!finished) begin
             a4_rises = a4_rises + 1;
             if (a4_rises == 2) begin
                 armed = 1'b1;
-                $display("INFO: cpu16: underrun at boot %0d (DU before the 8257 was enabled: data sheet behaviour, spec section 8)",
+                $display("INFO: cpu16: underrun at boot %0d (DU before the 8257 was enabled: data sheet behaviour)",
                          boot_ur);
             end
         end

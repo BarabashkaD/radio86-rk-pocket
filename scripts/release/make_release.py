@@ -24,7 +24,7 @@ generated block (files with size and SHA256, Kiselev's link, install steps, the 
 users, the source commit, the bitstream, the CHANGELOG link); a re-run replaces only that block.
 
 Every check runs before anything is built (version, date, bitstream, --out and the notes files,
-mtools, the fetched assets, the core submodule, git); a failure prints one line on stderr and exits
+mtools, the fetched assets, the submodules, git); a failure prints one line on stderr and exits
 1. A bitstream below MIN_BITSTREAM (1 MB) is a stand-in: refused unless the version contains
 -ci-test. The notes say where the bitstream came from (bitstream_origin). The package is made in a
 private folder inside --out, removed at the end; --notes-out is written through a temporary file
@@ -33,7 +33,8 @@ bitstream <SHA256 of ap_core.rbf>". The same inputs give the same bytes whatever
 (fatcard.bin included: fixed FAT times, and the OEM name bytes 06-0A fixed rather than mformat's
 version text; its other bytes as mformat writes them, checked against the layout); the zip only
 with the same zlib build (package.write_zip), so a local zip and the CI zip may differ. Needs
-mtools, python -B scripts/fetch_assets.py and the core submodule; no network.
+mtools, python -B scripts/fetch_assets.py and the submodules (lib/retroMachines, lib/retro8080Software);
+no network.
 """
 import argparse
 import contextlib
@@ -273,12 +274,16 @@ def prepare(a):
         raise Refusal('package/assets.json: no romdisk.bin and %s entries (%s)' % (LICENCE, e.__class__.__name__))
     rom = fetched(rom_entry, rom_entry['size'])
     licence = fetched(lic_entry)
-    if not os.path.isdir(package.PK_DIR) or not build_romdisks.pk_files(package.PK_DIR):
-        raise Refusal("the core submodule's pk folder (the game tapes) is missing: "
-                      'git submodule update --init --recursive')
-    for part in ('roms/BIOS.BIN', 'roms/FONT.BIN', 'LICENSE.TXT'):
-        if not os.path.isfile(os.path.join(package.CORE_SRC, *part.split('/'))):
-            raise Refusal('the core submodule is missing src/%s: git submodule update --init --recursive' % part)
+    if (not os.path.isdir(package.PK_DIR) or not build_romdisks.pk_files(package.PK_DIR)
+            or not os.path.isfile(os.path.join(package.PK_DIR, 'DESCRIPT.ION'))):
+        where = 'RETRO_SOFTWARE_DIR' if os.environ.get('RETRO_SOFTWARE_DIR') else 'lib/retro8080Software'
+        raise Refusal('the game tapes of %s are missing: git submodule update --init --recursive' % where)
+    # the monitor, the font and the sources of the package's licence files (package.py)
+    for part in ('machines/rk86/roms/monitor.bin', 'machines/rk86/roms/font.bin', 'NOTICE',
+                 'lib/retroICs/NOTICE', 'lib/retroICs/LICENSES/LicenseRef-Tselikov-BSD.txt'):
+        if not os.path.isfile(os.path.join(package.MACHINES_DIR, *part.split('/'))):
+            where = 'RETRO_MACHINES_DIR' if os.environ.get('RETRO_MACHINES_DIR') else 'lib/retroMachines'
+            raise Refusal('%s is missing %s: git submodule update --init --recursive' % (where, part))
     commit = git('rev-parse', 'HEAD').strip()
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise Refusal('git rev-parse HEAD gave no commit')

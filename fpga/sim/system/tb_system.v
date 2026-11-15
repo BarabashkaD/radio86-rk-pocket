@@ -4,7 +4,7 @@
 // slot signals driven as core_bridge_cmd drives them, and a PLL stub (clk_core_12288 and its
 // lock: the scenario drops the lock, and the PLL reset of the watchdog unlocks it for 1000 clk).
 // +scenario=boot|powerup|nocart|reset|relock|watchdog|menu|menu64|card|fatcard|xonix|game|dpddt|tetris|keytap|k1|k1_panel
-// The machine is rk86_machine16 (16 MHz, 50 Hz native frames); compile with -I <core>/src/sim/machine16
+// The machine is rk86_machine16 (16 MHz, 50 Hz native frames); compile with -I <retroMachines>/machines/rk86/tb
 // (cpu_power_up.vh, included by power_up.vh).
 // The ROM disk is in the PSRAM: psram_model (fpga/sim/memory, AW = 16: 128 KB, FF-filled) on the cram0
 // pins of pocket_system; psram_byte(i) reads ROM disk byte i from it (the packed mapping of
@@ -171,7 +171,7 @@ localparam integer FATRUN_FRAMES = 30;
 // native_frames counts pocket_raster's frame starts, which come only for plausible frames: before the
 // monitor programs the CRT no frame is counted, so a frame-based wait would never end on a hang there.
 // Fallback: out of reset, a frame start at least every 3 200 000 ce16 (10 frames of 319 920 ce16, as
-// the fork's VE_LIMIT; the boot's first frame start comes about 2 frames after the reset).
+// the machine TB's VE_LIMIT; the boot's first frame start comes about 2 frames after the reset).
 localparam integer NO_FRAME_CE16 = 3200000;
 integer no_frame_ce16 = 0;
 reg [31:0] last_frames = 32'd0;
@@ -675,7 +675,7 @@ initial begin
     force sys.rk86.hid_cols = tb_hid_cols; force sys.rk86.hid_mods = tb_hid_mods;
     `ZERO_UP(sys.rk86.machine)
     if (scenario == "powerup") begin
-        #1;                                      // after the RTL's initial blocks (k580vt57 ad / tr), before the first clk
+        #1;                                      // after the RTL's initial blocks (intel_8257 ad / tr), before the first clk
         `RANDOM_UP(sys.rk86.machine)
     end
     if (scenario == "boot" || scenario == "powerup") begin

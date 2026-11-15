@@ -13,7 +13,7 @@ The package holds no ROM disk image: the assets.json entries marked "package": f
 romdisk.bin and its licence) are fetched and tested, never packaged; the game disks and the card
 images are separate downloads on the release page. The Assets folder gets monitor.bin, font.bin
 and ROMDISKS.txt (template package/ROMDISKS.txt: which images exist, where to get them, where they
-go, how to load and run them, the games of each game disk, built from the core's pk/ folder by
+go, how to load and run them, the games of each game disk, built from the game tapes (PK_DIR) by
 scripts/romdisk/build_romdisks.py). info.txt (shown on the Pocket) also lists the games by menu
 key and name. --readme prints README's "ROM disk images" section, the same template in Markdown.
 """
@@ -32,10 +32,39 @@ import zlib
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 CORE_ID = 'BarabashkaD.Radio86RK'
 PLATFORM = 'radio86rk'
-CORE_SRC = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
-PK_DIR = os.path.join(os.path.dirname(CORE_SRC), 'pk')     # the core's game tape images
 sys.path.insert(0, os.path.join(ROOT, 'scripts', 'romdisk'))
 import build_romdisks  # noqa: E402
+LAYOUT = build_romdisks.repo_layout(ROOT)   # scripts/layout.py
+
+
+def lib_dirs():
+    """(retroMachines checkout, game tape folder) of scripts/layout.py. The default submodules are
+    checked: a missing or non-recursive one is one ERROR line naming git submodule update --init
+    --recursive (SystemExit), never a traceback. A set RETRO_MACHINES_DIR / RETRO_SOFTWARE_DIR stays
+    unchecked, so the checks that read it name the missing file there (never a fall back to lib/)."""
+    try:
+        machines = LAYOUT.retro_machines_dir(check=not os.environ.get('RETRO_MACHINES_DIR'))
+        pk = LAYOUT.pk_dir(check=not os.environ.get('RETRO_SOFTWARE_DIR'))
+    except LAYOUT.LayoutError as e:
+        raise SystemExit('ERROR: %s' % e)
+    return str(machines), str(pk)
+
+
+# the libraries (scripts/layout.py): retroMachines (monitor, font, the licence texts and NOTICE files
+# of retroMachines and its retroICs; RETRO_MACHINES_DIR) and the game tapes of retro8080Software
+# (RETRO_SOFTWARE_DIR)
+MACHINES_DIR, PK_DIR = lib_dirs()
+ICS_DIR = os.path.join(MACHINES_DIR, 'lib', 'retroICs')
+# the package's licence files beside LICENSE.txt (this repo's) and APF-NOTICE.txt (the template's):
+# Dmitry Tselikov's BSD-style licence of the 8257 and 8275 models (retroICs), and the NOTICE files
+# of the two libraries whose files are in the bitstream (LICENSES.md names them all)
+TSELIKOV_LICENCE = ('LICENSE-tselikov-bsd.txt', os.path.join(ICS_DIR, 'LICENSES', 'LicenseRef-Tselikov-BSD.txt'))
+NOTICE_FILE = 'NOTICE-retro.txt'
+NOTICES = (('retroMachines', 'https://github.com/BarabashkaD/retroMachines', os.path.join(MACHINES_DIR, 'NOTICE')),
+           ('retroICs', 'https://github.com/BarabashkaD/retroICs', os.path.join(ICS_DIR, 'NOTICE')))
+# the 8080 model's licence by its URI in NOTICE-retro.txt (CC BY 3.0 allows the URI in place of the
+# text; retroICs' LICENSES/CC-BY-3.0.txt is not in the package)
+CC_BY_3_URI = 'https://creativecommons.org/licenses/by/3.0/'
 GLYPHS = {
     'R': ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
     'K': ['10001', '10010', '10100', '11000', '10100', '10010', '10001'],
@@ -310,7 +339,8 @@ def romdisks_text(template, disks, version):
                 break
         lines.append(line)
     games = sum(len(d['entries']) for d in disks)
-    listing = ['The %d games of the Karabas core on %d disks, by menu key:' % (games, len(disks))]
+    listing = ['The %d games of the 1999 collection (retro8080Software, rk86/collections/pyhonin-1999)'
+               ' on %d disks, by menu key:' % (games, len(disks))]
     for d in disks:
         listing += ['', '%s (disk %d)' % (d['file'], d['disk'])]
         for e in d['entries']:
@@ -343,13 +373,14 @@ def info_with_games(info, disks):
 
 
 def game_disks(pk_dir, reserved):
-    """The 5 game disks built from the core's tape images by build_romdisks.py:
+    """The 5 game disks built by build_romdisks.py from the game tapes of retro8080Software:
     (the romdisks.json list, {file name: bytes}). A name of another asset is an error."""
     try:
         built = build_romdisks.build(pk_dir)
+        titles = build_romdisks.descriptions(pk_dir)
     except (OSError, ValueError) as e:
         raise SystemExit('ERROR: game disks: %s' % e)
-    disks = build_romdisks.metadata(built, build_romdisks.descriptions(pk_dir))
+    disks = build_romdisks.metadata(built, titles)
     files = {}
     for d, b in zip(disks, built):
         if d['file'] in reserved or not 0 < len(b['image']) <= ROMDISK_MAX:
@@ -358,11 +389,27 @@ def game_disks(pk_dir, reserved):
     return disks, files
 
 
+def notice_text():
+    """NOTICE-retro.txt: a header (with the CC BY 3.0 URI of the 8080 model), then the NOTICE files
+    of retroMachines and retroICs, each as it is under a line that names its repository (UTF-8
+    bytes, LF)."""
+    parts = [b'The NOTICE files of the libraries in this core: retroMachines (the Radio-86RK machine,\n'
+             b'the monitor and the font) and retroICs (the IC models), each as it is.\n'
+             b'The 8080 model (k580vm80a.v, by Vslav) is under CC BY 3.0: ' + CC_BY_3_URI.encode('ascii') + b'\n']
+    for name, url, path in NOTICES:
+        with open(path, 'rb') as f:
+            text = f.read()
+        if b'\r' in text or not text.endswith(b'\n'):
+            raise SystemExit('ERROR: %s NOTICE is not LF text with a final newline' % name)
+        parts.append(('\n==== NOTICE of %s (%s) ====\n\n' % (name, url)).encode('ascii') + text)
+    return b''.join(parts)
+
+
 def asset_bytes(asset, assets_dir):
-    """core:src/<path> comes from the core submodule, everything else from build/assets."""
+    """retroMachines:<path> comes from the retroMachines submodule, everything else from build/assets."""
     src = asset['source']
-    if src.startswith('core:src/'):
-        path = os.path.join(CORE_SRC, src[len('core:src/'):])
+    if src.startswith('retroMachines:'):
+        path = os.path.join(MACHINES_DIR, *src[len('retroMachines:'):].split('/'))
     else:
         path = os.path.join(assets_dir, asset['name'])
     with open(path, 'rb') as f:
@@ -461,7 +508,9 @@ def main(argv=None):
     with open(os.path.join(asset_dir, 'ROMDISKS.txt'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(guide)
     shutil.copyfile(os.path.join(ROOT, 'LICENSE'), os.path.join(core_dir, 'LICENSE.txt'))
-    shutil.copyfile(os.path.join(CORE_SRC, 'LICENSE.TXT'), os.path.join(core_dir, 'LICENSE-karabas-core.txt'))
+    shutil.copyfile(TSELIKOV_LICENCE[1], os.path.join(core_dir, TSELIKOV_LICENCE[0]))
+    with open(os.path.join(core_dir, NOTICE_FILE), 'wb') as f:
+        f.write(notice_text())
     with open(os.path.join(ROOT, 'fpga', 'apf', 'apf_top.v'), encoding='utf-8', errors='replace') as f:
         apf = f.read()
     with open(os.path.join(core_dir, 'APF-NOTICE.txt'), 'w', encoding='utf-8', newline='\n') as f:

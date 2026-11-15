@@ -1,6 +1,6 @@
 // The A000-BFFF block of the Radio-86RK on the Analogue Pocket: the board's second 8255 (Радио 1986 D14,
 // the interface PPI whose ports go to the external connector J6) with a ROM disk on its ports. The 8255 is
-// the fork's model k580vv55 (rk86_16/, through rk86_machine16.prj, never copied here). A port is 8 pins of
+// the model intel_8255a of retroICs (intel/8255a, through lib/retroMachines, never copied). A port is 8 pins of
 // the chip; the 4 registers (port A, port B, port C, control) are picked by its address pins A1, A0
 // (input a). Port B is the ROM address A0-A7, port C A8-A15, port A the ROM data, always on (no output
 // enable; a program that makes port A an output reads its latch). Three cards on J6, chosen by wide and
@@ -50,7 +50,7 @@ always @(posedge clk) begin
 end
 assign rom_address = {card ? bank : 7'd0, wide & pc_pin[7], pc_pin[6:0], pb_pin};
 wire [7:0] pa_pin = loaded ? rom_data : 8'hFF;
-k580vv55 ppi(.clk(clk), .reset(reset), .cs_n(cs_n), .rd_n(rd_n), .wr_n(wr_n), .a(a), .d_i(d_i), .d_o(d_o),
+intel_8255a ppi(.clk(clk), .reset(reset), .cs_n(cs_n), .rd_n(rd_n), .wr_n(wr_n), .a(a), .d_i(d_i), .d_o(d_o),
     .pa_i(pa_pin), .pa_o(pa_o), .pa_oe(pa_oe), .pb_i(8'hFF), .pb_o(pb_o), .pb_oe(pb_oe),
     .pc_i(8'hFF), .pc_o(pc_o), .pc_oe(pc_oe));
 endmodule

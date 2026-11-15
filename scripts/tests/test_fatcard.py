@@ -25,9 +25,9 @@ import tape  # noqa: E402
 from card_model import CardPpi, fa68_copy  # noqa: E402
 
 ASSETS = os.path.join(ROOT, 'build', 'assets')
-PK = os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'pk')
-CORE_SRC = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
-BIOS = os.path.join(CORE_SRC, 'roms', 'BIOS.BIN')
+LAYOUT = build_romdisks.repo_layout(ROOT)   # scripts/layout.py: a missing submodule fails here
+PK = str(LAYOUT.pk_dir())                   # the game tapes of lib/retro8080Software
+BIOS = os.path.join(str(LAYOUT.rk86_roms()), 'monitor.bin')
 
 
 def asset(name):

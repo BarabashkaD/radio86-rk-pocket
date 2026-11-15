@@ -1,12 +1,14 @@
-"""Builds the 48 Karabas game tape images into 5 ROM disks of 65536 bytes (each a 64 KB ROM).
+"""Builds the 48 game tape images of the collection pyhonin-1999 into 5 ROM disks of 65536 bytes (each a 64 KB ROM).
 
 Usage: python -B scripts/romdisk/build_romdisks.py [--pk DIR] [--out DIR] [--readme]
-  --pk      directory with the .GAM/.RKR tape images (default cores/karabas-go-core-rk86/pk)
+  --pk      directory with the .GAM/.RKR tape images (default: the game tapes of lib/retro8080Software,
+            scripts/layout.py pk_dir())
   --out     output directory (default build/romdisks)
   --readme  print the README's game list (the lines between its game-disk markers) and stop
 
 Writes romdisk-<n>.bin (n = 1..5), romdisks.json (with each game's title from the pk
-directory's DESCRIPT.ION, or '') and romdisks.txt.
+directory's DESCRIPT.ION, or '' for a file it does not list) and romdisks.txt. A pk directory
+without DESCRIPT.ION is an error.
 
 Rules: DISKS is a fixed table (menu order = the file name order). Every
 .GAM/.RKR/.RK file of the pk directory except bios.rk is in exactly one disk and
@@ -24,6 +26,7 @@ for their game lists only (info.txt, ROMDISKS.txt); scripts/release/make_release
 to a release. The package holds no ROM disk image.
 """
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -128,14 +131,17 @@ def build(pk_dir):
 
 
 def descriptions(pk_dir):
+    """{file name: game title} from the collection's DESCRIPT.ION (CP866). A folder without it is
+    an error (FileNotFoundError): the titles of the menus, info.txt and ROMDISKS.txt come from it."""
     path = os.path.join(pk_dir, 'DESCRIPT.ION')
+    if not os.path.isfile(path):
+        raise FileNotFoundError('DESCRIPT.ION (the game titles) missing in %s' % pk_dir)
     result = {}
-    if os.path.exists(path):
-        with open(path, 'rb') as f:
-            for line in f.read().decode('cp866', errors='replace').splitlines():
-                name, _, text = line.strip().partition(' ')
-                if name and text.strip():
-                    result[name.upper()] = text.strip()
+    with open(path, 'rb') as f:
+        for line in f.read().decode('cp866', errors='replace').splitlines():
+            name, _, text = line.strip().partition(' ')
+            if name and text.strip():
+                result[name.upper()] = text.strip()
     return result
 
 
@@ -167,15 +173,39 @@ def write_text(path, text):
         f.write(text)
 
 
+def repo_layout(root):
+    """scripts/layout.py of the repo at root, loaded under its own module name (scripts/k1/layout.py
+    is the K1 tools' layout)."""
+    name = 'rk86_repo_layout'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(root, 'scripts', 'layout.py'))
+        sys.modules[name] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sys.modules[name])
+    return sys.modules[name]
+
+
+def default_pk(root):
+    """The game tapes of lib/retro8080Software (scripts/layout.py pk_dir()); LayoutError when missing."""
+    return str(repo_layout(root).pk_dir())
+
+
 def main():
     root = os.path.normpath(os.path.join(HERE, '..', '..'))
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--pk', default=os.path.join(root, 'cores', 'karabas-go-core-rk86', 'pk'))
+    ap.add_argument('--pk')
     ap.add_argument('--out', default=os.path.join(root, 'build', 'romdisks'))
     ap.add_argument('--readme', action='store_true')
     args = ap.parse_args()
-    disks = build(args.pk)
-    desc = descriptions(args.pk)
+    if not args.pk:
+        try:
+            args.pk = default_pk(root)
+        except RuntimeError as e:   # LayoutError: the submodule is missing
+            raise SystemExit('ERROR: %s' % e)
+    try:
+        disks = build(args.pk)
+        desc = descriptions(args.pk)
+    except (OSError, ValueError) as e:
+        raise SystemExit('ERROR: %s' % e)
     if args.readme:
         sys.stdout.reconfigure(encoding='utf-8')
         print(readme_list(metadata(disks, desc)))

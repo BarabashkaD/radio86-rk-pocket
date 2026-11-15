@@ -1,8 +1,9 @@
 # Long simulations, weekly and on demand (AGENTS.md section 6, "CI (GitHub Actions)"). Every matrix
-# entry runs on its own runner: the system scenarios one each; run_core_machine.py (the fork's
-# machine16 on pocket_memory, then its fault); the fork's machine16 runner one test with its faults
-# each. The failure artifacts leave out the simulation inputs (cartridge.hex is the ROM disk, whose
-# public distribution is undecided; monitor.hex, bios.hex, font.hex) and the compiled *.vvp.
+# entry runs on its own runner: the system scenarios one each; run_core_machine.py (the libraries'
+# machine16 on pocket_memory, then its fault); the libraries' tests (lib/retroMachines and its
+# lib/retroICs) one test with its faults each, through scripts/simrun.py run --test. The failure
+# artifacts leave out the simulation inputs (cartridge.hex is the ROM disk, whose public
+# distribution is undecided; monitor.hex, bios.hex, font.hex) and the compiled *.vvp.
 # Time limits: 2-3 times the remote host's measured times (a GitHub runner's Icarus is that much
 # slower), at most GitHub's 360 min per job.
 name: weekly
@@ -43,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: true
+          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -76,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: true
+          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -89,7 +90,6 @@ jobs:
         with:
           name: core-machine-pocket
           path: |
-            cores/karabas-go-core-rk86/build/sim/machine16/
             build/sim/core_machine/
             !**/cartridge.hex
             !**/monitor.hex
@@ -99,33 +99,42 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  core-machine-fork:
-    name: Fork machine16 runner ${{ matrix.test }}
+  library-test:
+    name: Library test ${{ matrix.test }}
     runs-on: ubuntu-24.04
     # a unit TB with its faults: up to about 1.5 h remote; machine16 (40 min remote) with its faults
-    # takes the GitHub job maximum until the fork runner can split its faults
+    # may take the GitHub job maximum (its faults run 4 at a time: --jobs 4, the runner's 4 CPUs)
     timeout-minutes: ${{ matrix.test == 'machine16' && 360 || 330 }}
     strategy:
       fail-fast: false
       matrix:
-        test: [clocks16, vv55, vt57, vt57_func, vg75, vg75_dma, vg75_attr, video16, machine16]
+        include:          # one entry per test of the libraries' manifests (test_layout.py checks it)
+          - { component: machines/rk86, test: clocks16 }
+          - { component: intel/8255a, test: vv55 }
+          - { component: intel/8257, test: vt57 }
+          - { component: intel/8257, test: vt57_func }
+          - { component: intel/8275, test: vg75 }
+          - { component: intel/8275, test: vg75_dma }
+          - { component: intel/8275, test: vg75_attr }
+          - { component: machines/rk86, test: video16 }
+          - { component: machines/rk86, test: machine16 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: true
+          submodules: recursive
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
       - uses: ./.github/actions/setup-iverilog
-      - name: run_machine16_sim.py --negative ${{ matrix.test }}
-        run: python -B cores/karabas-go-core-rk86/src/sim/machine16/run_machine16_sim.py --negative ${{ matrix.test }}
+      - name: simrun ${{ matrix.component }} ${{ matrix.test }} with its faults
+        run: python -B scripts/simrun.py run ${{ matrix.component }} --test ${{ matrix.test }} --tier full --negative --jobs 4 --out build/simrun
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: core-machine-fork-${{ matrix.test }}
+          name: library-test-${{ matrix.test }}
           path: |
-            cores/karabas-go-core-rk86/build/sim/machine16/${{ matrix.test }}/
+            build/simrun/
             !**/cartridge.hex
             !**/monitor.hex
             !**/bios.hex

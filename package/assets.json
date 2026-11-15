@@ -6,8 +6,8 @@
       "size": 2048,
       "crc32": "BF1CEEA5",
       "sha256": "b52bc01ce40fc03e4c6e2369b74e30ef9e9cebc6db73c03988d76587af3eb946",
-      "source": "core:src/roms/BIOS.BIN",
-      "licence": "shipped in the Karabas core (src/roms), modified BSD repository; original Radio-86RK monitor"
+      "source": "retroMachines:machines/rk86/roms/monitor.bin",
+      "licence": "retroMachines machines/rk86/roms/PROVENANCE.md: imported byte for byte from the Karabas core (src/roms/BIOS.BIN, whose repository names its modified BSD licence); licence check of the original Radio-86RK monitor open"
     },
     {
       "name": "font.bin",
@@ -15,8 +15,8 @@
       "size": 1024,
       "crc32": "21E9ED84",
       "sha256": "6e59b35d5595353bcc1a7dc9da1f45a84d0596e482d06f1fecc3a68367e7f156",
-      "source": "core:src/roms/FONT.BIN",
-      "licence": "shipped in the Karabas core (src/roms), modified BSD repository; also built into the bitstream for the on-screen keyboard"
+      "source": "retroMachines:machines/rk86/roms/font.bin",
+      "licence": "retroMachines machines/rk86/roms/PROVENANCE.md: imported byte for byte from the Karabas core (src/roms/FONT.BIN, whose repository names its modified BSD licence); licence check open; also built into the bitstream for the on-screen keyboard"
     },
     {
       "name": "romdisk.bin",

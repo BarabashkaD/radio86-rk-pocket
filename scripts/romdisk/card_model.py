@@ -1,6 +1,6 @@
 """Python model of the J6 bank card: a ROM disk on the second 8255 (A000-BFFF) with a bank latch.
 
-Follows the fork's k580vv55.v for the port logic (mode 0 only). Card type by image size:
+Follows retroICs' intel_8255a.v for the port logic (mode 0 only). Card type by image size:
 up to 32768 bytes the 32 KB mirror {0, PC6..PC0, PB}; up to 65536 bytes {0, PC7..PC0, PB};
 up to 8388608 bytes the bank card {bank[6:0], PC7..PC0, PB}.
 

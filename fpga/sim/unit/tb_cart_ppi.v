@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 `default_nettype none
-// pocket_cart_ppi, the ROM disk glue around the fork's k580vv55, with its ROM data from the PSRAM: rom_address
+// pocket_cart_ppi, the ROM disk glue around retroICs' intel_8255a, with its ROM data from the PSRAM: rom_address
 // is pocket_psram's rd_addr, rom_data its rd_data, on psram_model (AW = 22: the whole die, FILL 1: FFFF),
 // whose words 0..262143 (ROM bytes 0-7FFFF: banks 0-7) are filled after time 0 (after the model's own fill)
 // with {pattern(2w+1), pattern(2w)} (the even ROM byte in D7-D0). pattern() depends on A0-A22, so a byte
@@ -25,7 +25,7 @@
 // the machine reset keeps bank 2; the card reset clears it. Not a bank card: an FF->7F event with card 0
 // leaves the bank 0. Outside the card: bank 4, then card 0: the bank is not used (A16-A22 0).
 // No image (loaded 0): port A FF on all three cards, at addresses whose byte is not FF.
-// CS / RD / WR strobes held 4 clk, as in the fork's tb_vv55.v. Every port A read: RD falls READ_AFTER_WR clk
+// CS / RD / WR strobes held 4 clk, as in retroICs' tb_vv55.v. Every port A read: RD falls READ_AFTER_WR clk
 // after the last WR rise (or the 8255's reset, a card reset or a card change), d_o taken 4 clk later.
 module tb_cart_ppi;
 // The 8080's shortest port-write to port-A-read interval: after the write, the next instruction's M1

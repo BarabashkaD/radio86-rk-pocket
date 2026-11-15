@@ -175,7 +175,9 @@ class PackageTest(unittest.TestCase):
         for part in ('R0,1FF,0', 'G0', 'romdisk.bin', '6 TETRIS', 'Core Settings > Reset',
                      'Core Settings > Cold boot'):
             self.assertIn(part, text)
-        self.assertIn('The 3 games of the Karabas core on 2 disks', text)
+        self.assertIn('The 3 games of the 1999 collection (retro8080Software, rk86/collections/pyhonin-1999)'
+                      ' on 2 disks', text)
+        self.assertNotIn('Karabas', text)
         self.assertIn('romdisk-1.bin (disk 1)\n  0  CHESS        Шахматы\n  1  GLASS2\n', text)
         self.assertIn('romdisk-2.bin (disk 2)\n  A  ZMEI\n', text)
         self.assertNotIn(package.GUIDE_MARKER, text)
@@ -266,9 +268,9 @@ class PackageTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             package.info_with_games('no credits line\n', disks)
 
-    def test_game_disks_are_built_from_the_core(self):
+    def test_game_disks_are_built_from_the_tapes(self):
         if not os.path.isdir(package.PK_DIR):
-            self.skipTest('core submodule not checked out')
+            self.skipTest('lib/retro8080Software not checked out')
         disks, files = package.game_disks(package.PK_DIR, {'romdisk.bin', 'monitor.bin', 'font.bin'})
         self.assertEqual(list(files), ['romdisk-%d.bin' % n for n in range(1, 6)])
         self.assertEqual([d['file'] for d in disks], list(files))
@@ -309,8 +311,9 @@ class BuiltPackageTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not os.path.isdir(package.PK_DIR) or not os.path.isfile(os.path.join(package.CORE_SRC, 'roms', 'BIOS.BIN')):
-            raise unittest.SkipTest('core submodule not checked out')
+        if not os.path.isdir(package.PK_DIR) or not os.path.isfile(
+                os.path.join(package.MACHINES_DIR, 'machines', 'rk86', 'roms', 'monitor.bin')):
+            raise unittest.SkipTest('lib/retroMachines or lib/retro8080Software not checked out')
         cls.tmp = tempfile.TemporaryDirectory()
         cls.build = os.path.join(cls.tmp.name, 'stand-in')
         os.makedirs(os.path.join(cls.build, 'output_files'))
@@ -335,8 +338,44 @@ class BuiltPackageTest(unittest.TestCase):
             self.assertNotRegex(base.lower(), r'^romdisk(-\d+)?\.bin$', name)
             self.assertNotIn(base, ('romdisks.txt', 'LICENSE-romdisk.txt'), name)
         self.assertNotIn(self.CORES + 'LICENSE-romdisk.txt', self.files)
-        self.assertEqual(sorted(n[len(self.CORES):] for n in self.files if n.startswith(self.CORES + 'LICENSE')),
-                         ['LICENSE-karabas-core.txt', 'LICENSE.txt'])
+
+    def test_package_licence_files(self):
+        # the licence files of Cores/<core id>/ (every .txt but info.txt) are exactly the ones the
+        # sentence of LICENSES.md names, with the texts of their sources
+        with open(os.path.join(ROOT, 'LICENSES.md'), encoding='utf-8') as f:
+            licences = f.read()
+        m = re.search(r"^The package's `Cores/%s/` holds ([^;]+);" % re.escape(package.CORE_ID), licences, re.M)
+        self.assertTrue(m, "LICENSES.md: no sentence \"The package's `Cores/...` holds ...;\"")
+        named = sorted(re.findall(r'`([^`]+)`', m.group(1)))
+        shipped = sorted(n[len(self.CORES):] for n in self.files
+                         if n.startswith(self.CORES) and n.endswith('.txt') and n != self.CORES + 'info.txt')
+        self.assertEqual(shipped, named)
+        self.assertEqual(named, ['APF-NOTICE.txt', 'LICENSE-tselikov-bsd.txt', 'LICENSE.txt', 'NOTICE-retro.txt'])
+        machines = package.MACHINES_DIR
+        ics = os.path.join(machines, 'lib', 'retroICs')
+
+        def read(*parts):
+            with open(os.path.join(*parts), 'rb') as f:
+                return f.read()
+
+        self.assertEqual(self.files[self.CORES + 'LICENSE.txt'], read(ROOT, 'LICENSE'))
+        self.assertEqual(self.files[self.CORES + 'LICENSE-tselikov-bsd.txt'],
+                         read(ics, 'LICENSES', 'LicenseRef-Tselikov-BSD.txt'))
+        notice = self.files[self.CORES + 'NOTICE-retro.txt']
+        for text in (read(machines, 'NOTICE'), read(ics, 'NOTICE')):
+            self.assertIn(text, notice)
+        # each library's attribution line (line 4 of its NOTICE), in the package and in LICENSES.md
+        for name, folder in (('retroMachines', machines), ('retroICs', ics)):
+            attribution = read(folder, 'NOTICE').decode('utf-8').split('\n')[3]
+            self.assertTrue(attribution.startswith('Contains %s by ' % name), attribution)
+            self.assertIn(attribution.encode('utf-8'), notice)
+            self.assertIn(attribution, licences)
+        self.assertNotIn(b'\r', notice)
+        self.assertTrue(notice.isascii() and notice.endswith(b'\n'))
+        # LICENSES/CC-BY-3.0.txt is not in the package: the header gives the 8080 model's licence URI
+        header = notice.split(b'\n====', 1)[0].decode('ascii')
+        self.assertIn('The 8080 model (k580vm80a.v, by Vslav) is under CC BY 3.0: '
+                      'https://creativecommons.org/licenses/by/3.0/\n', header)
 
     def test_library_checks_pass(self):
         self.assertEqual(package.check_library_zip(self.zip_path), [])
@@ -372,7 +411,8 @@ class BuiltPackageTest(unittest.TestCase):
                 self.assertIn(e['name'], text)
                 if e.get('title'):
                     self.assertIn(e['title'], text)
-        self.assertIn('The 48 games of the Karabas core on 5 disks', text)
+        self.assertIn('The 48 games of the 1999 collection (retro8080Software, rk86/collections/pyhonin-1999)'
+                      ' on 5 disks', text)
         with open(os.path.join(ROOT, 'package', 'assets.json'), encoding='utf-8') as f:
             asset = next(a for a in json.load(f)['assets'] if a['name'] == 'romdisk.bin')
         self.assertIn(asset['source'], text)
@@ -383,7 +423,14 @@ class BuiltPackageTest(unittest.TestCase):
     def test_info_txt_points_to_romdisks_txt(self):
         info = self.files[self.CORES + 'info.txt'].decode('utf-8')
         self.assertTrue(info.isascii())
-        self.assertEqual(sum(1 for line in info.split('\n') if line.startswith('Credits:')), 1)
+        credits = [line for line in info.split('\n') if line.startswith('Credits:')]
+        self.assertEqual(len(credits), 1)
+        # Sorgelig's changes are in the 8275 model's base only (the 8257's header names Tselikov alone)
+        clauses = [c for c in credits[0].split(';') if 'Sorgelig' in c]
+        self.assertEqual(len(clauses), 1, credits[0])
+        self.assertIn('8275', clauses[0])
+        self.assertNotIn('8257', clauses[0])
+        self.assertIn('8257 base: D. Tselikov;', credits[0])
         self.assertIn('ROM disk images are separate downloads on the release page; '
                       'see ROMDISKS.txt in the Assets folder.', info)
         self.assertEqual(info.count('ROMDISKS.txt'), 1)

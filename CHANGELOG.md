@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The chip models and the machine come from retroICs / retroMachines (the one commit of each library's branch `layout-migration` until v0.1.0); the game tapes from retro8080Software; no change in behaviour.
+- Package licence files: `LICENSE-tselikov-bsd.txt` (the licence of the 8257 and 8275 models) and `NOTICE-retro.txt` (the NOTICE files of retroMachines and retroICs) replace `LICENSE-karabas-core.txt`.
+- Package wording: `info.txt` credits Sorgelig's changes for the 8275 model only (the 8257's base is Dmitry Tselikov's); `ROMDISKS.txt` names the games' source as the 1999 collection in retro8080Software; `NOTICE-retro.txt` gives the CC BY 3.0 URI of the 8080 model; its retroMachines part credits the authors of the Radio-86RK monitor. `info.txt` and README's Credits name the authors of the Radio-86RK and its monitor (D. Gorshkov, G. Zelenko, Yu. Ozerov, S. Popov).
+- Docs: AGENTS.md, README.md and `fpga/README.md` describe the libraries in place of the Karabas fork; new `fpga/implementation.md` lists the Pocket's deviations from the original board (`RKPOCKET-DEV-n`).
+
 ## 0.9.0 (2026-11-14)
 
 - ROM disk in the Pocket's PSRAM (`cram0`, die 0, asynchronous mode): the 64 KB block RAM is gone (64 M10K blocks freed). New `pocket_psram.v` (one state machine on `clk_74a`, 13 ticks per access, DQ sampled a tick before OE#/CE# rise, no new clock) and `pocket_psram.sdc`. After the power-up reset it waits tPU (151 us), writes the BCR to 9D1Fh through CRE (asynchronous mode, whatever an earlier core left), then raises `ready`; APF slot requests wait for `ready`.

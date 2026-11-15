@@ -9,11 +9,14 @@ A test passes when vvp exits 0, prints a line that starts with PASS and no line 
 ERROR or contains FATAL; with 'compare' the frame it writes must also pass frame_compare.py
 against its golden frame. --negative also runs every fault of the test: fpga/sim/negative/<name>
 .patch applied to copies under build/sim with git apply; each must fail and print its expected
-text. Outputs: build/sim/<test>[_<fault>]/ (ignored by git). Core sources: RK86_CORE_DIR
-(default cores/karabas-go-core-rk86/src), never copied unless a fault patches them (a patch names a
-core file as cores/karabas-go-core-rk86/src/<path>; the copy is taken from RK86_CORE_DIR).
+text. Outputs: build/sim/<test>[_<fault>]/ (ignored by git). The machine and the chip models come
+from lib/retroMachines and its lib/retroICs (scripts/layout.py; RETRO_MACHINES_DIR moves both), as
+simrun lists them (dependencies first), never copied unless a fault patches them: a patch names such a
+file by its path in the default checkout (lib/retroMachines/<path>), the copy is taken from the
+retroMachines checkout in use; fault_source. The fault helpers are retroICs' simrun.negative.
 """
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -21,8 +24,35 @@ import subprocess
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-CORE = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
 NEG = os.path.join(ROOT, 'fpga', 'sim', 'negative')
+MACHINE = 'machines/rk86'          # rk86_machine16 and its chips (lib/retroMachines)
+PPI = 'intel/8255a'                # the 8255 of pocket_cart_ppi (lib/retroMachines/lib/retroICs)
+
+
+def layout():
+    """scripts/layout.py under its own module name (scripts/k1/layout.py is the K1 tools' layout)."""
+    name = 'rk86_repo_layout'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(ROOT, 'scripts', 'layout.py'))
+        sys.modules[name] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sys.modules[name])
+    return sys.modules[name]
+
+
+def simrun_tools():
+    """retroICs' tools/ on the module path (no __pycache__ there); returns the folder."""
+    tools = str(layout().retro_ics_tools())
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    sys.dont_write_bytecode = True
+    return tools
+
+
+def negative():
+    """(apply_patch, patched_files) of retroICs' simrun.negative."""
+    simrun_tools()
+    from simrun.negative import apply_patch, patched_files
+    return apply_patch, patched_files
 
 
 def rtl(*names):
@@ -33,25 +63,23 @@ def sim(*names):
     return [os.path.join(ROOT, 'fpga', 'sim', n) for n in names]
 
 
-def core_files(prj='rk86_machine.prj', only=None):
-    """The core sources of a .prj in RK86_CORE_DIR; only: keep the files with these base names."""
-    files = []
-    with open(os.path.join(CORE, prj), encoding='utf-8') as f:
-        for line in f:
-            parts = line.split('"')
-            if line.startswith('verilog') and len(parts) >= 3:
-                files.append(os.path.join(CORE, parts[1]))
-    if only is not None:
-        files = [p for p in files if os.path.basename(p) in only]
-        missing = set(only) - {os.path.basename(p) for p in files}
-        if missing:
-            raise SystemExit('ERROR: %s not in %s' % (', '.join(sorted(missing)), os.path.join(CORE, prj)))
-    return files
+def lib_files(component):
+    """The RTL files of a component of the libraries (dependencies first, absolute paths), as
+    simrun filelist lists them."""
+    simrun_tools()
+    from simrun import filelist, manifest
+    roots = layout().search_roots()
+    return [str(p) for p in filelist.files(manifest.resolve(component, roots), roots)]
+
+
+def machine_tb():
+    """The machine's TB folder in retroMachines (cpu_power_up.vh)."""
+    return os.path.join(str(layout().retro_machines_dir()), 'machines', 'rk86', 'tb')
 
 
 HEX = {  # name in the run directory: (source, accepted sizes, written size: the rest FF; a larger image as it is)
-    'monitor.hex': (lambda: os.path.join(CORE, 'roms', 'BIOS.BIN'), (2048,), 2048),
-    'font.hex': (lambda: os.path.join(CORE, 'roms', 'FONT.BIN'), (1024,), 1024),
+    'monitor.hex': (lambda: os.path.join(str(layout().rk86_roms()), 'monitor.bin'), (2048,), 2048),
+    'font.hex': (lambda: os.path.join(str(layout().rk86_roms()), 'font.bin'), (1024,), 1024),
     # Kiselev's ROM disk, a 64 KB game disk (tb_system: +cart_size=65536) or the 128 KB card image of the
     # card test (+cart_size=131072; tb_system reads 131072 entries then)
     'cartridge.hex': (lambda: os.path.join(ROOT, 'build', 'assets', 'romdisk.bin'), (32256, 65536, 131072), 65536),
@@ -62,7 +90,7 @@ HEX = {  # name in the run directory: (source, accepted sizes, written size: the
 TESTS = {
     'cart_ppi': dict(top='tb_cart_ppi',
                      files=lambda: sim('unit/tb_cart_ppi.v', 'memory/psram_model.v') + rtl('pocket_cart_ppi.v', 'pocket_psram.v')
-                     + core_files('rk86_machine16.prj', only=('k580vv55.v',)),
+                     + lib_files(PPI),
                      negatives=[('cart_wide_no_a15', 'ERROR: cart_ppi: wide reset: rom address'),
                                 ('cart_wide_pc7_off', 'ERROR: cart_ppi: wide reset: port A'),
                                 ('cart_late_rom_data', 'ERROR: cart_ppi: LDA A000h'),
@@ -123,11 +151,11 @@ TESTS = {
     'watchdog': dict(top='tb_pll_watchdog', files=sim('unit/tb_pll_watchdog.v') + rtl('pocket_pll_watchdog.v'),
                      negatives=[('watchdog_never', 'ERROR: watchdog pulse count')]),
     # rk86_machine16 with the CPU test program in place of the monitor, on the Pocket memory (pocket_memory
-    # through fpga/sim/memory/tb_rk86_mem16.v, the ports of the fork's model); about 8 native frames: slow
+    # through fpga/sim/memory/tb_rk86_mem16.v, the ports of the machine TB's model); about 8 native frames: slow
     'cpu16': dict(top='tb_cpu16', slow=True, inputs=lambda out: cpu16_inputs(out), plusargs=['+bios=cpu_test.hex'],
-                  incdirs=lambda: [os.path.join(CORE, 'sim', 'machine16')],   # cpu_power_up.vh
+                  incdirs=lambda: [machine_tb()],   # cpu_power_up.vh
                   files=lambda: sim('unit/tb_cpu16.v', 'memory/tb_rk86_mem16.v') + rtl('pocket_memory.v')
-                  + core_files('rk86_machine16.prj'),
+                  + lib_files(MACHINE),
                   negatives=[('cpu16_bus_bit', 'ERROR: cpu16: phase 1 case 1'),
                              ('cpu16_startup_decode', 'ERROR: cpu16: device written during start-up'),
                              # review A I2: during AEN the monitor ROM is not selected (the old glue): phase 7's
@@ -149,8 +177,8 @@ WINDOW_X0 = 42
 def system(scenario, compare=None, cart=None, extra=None, negatives=()):
     return dict(top='tb_system', slow=True, plusargs=['+scenario=' + scenario], compare=compare, cart=cart, extra=extra,
                 hex=['monitor.hex', 'font.hex', 'cartridge.hex'], negatives=list(negatives),
-                incdirs=lambda: [os.path.join(CORE, 'sim', 'machine16')],   # cpu_power_up.vh (power_up.vh)
-                files=lambda: sim('system/tb_system.v', 'memory/psram_model.v') + SYSTEM_RTL + core_files('rk86_machine16.prj'))
+                incdirs=lambda: [machine_tb()],   # cpu_power_up.vh (power_up.vh)
+                files=lambda: sim('system/tb_system.v', 'memory/psram_model.v') + SYSTEM_RTL + lib_files(MACHINE))
 
 
 ROMDISKS_BUILD = 'python -B scripts/romdisk/build_romdisks.py'
@@ -324,14 +352,15 @@ def cpu16_inputs(out):
         f.write(''.join('%02x\n' % b for b in code + bytes([0xFF] * (2048 - len(code)))))
 
 
-# A fault patch names a core file by its path in the default submodule checkout; it is read from
-# RK86_CORE_DIR, so a fault of a core file also works with another core directory.
-CORE_REL = 'cores/karabas-go-core-rk86/src/'
+# A fault patch names a library file by its path in the default submodule checkout (lib/retroMachines/
+# <path>, also lib/retroMachines/lib/retroICs/<path>); it is read from the retroMachines checkout in
+# use (RETRO_MACHINES_DIR), so a fault of a library file also works with another checkout.
+MACHINES_REL = 'lib/retroMachines/'
 
 
 def fault_source(rel):
-    if rel.startswith(CORE_REL):
-        return os.path.join(CORE, rel[len(CORE_REL):])
+    if rel.startswith(MACHINES_REL):
+        return os.path.join(str(layout().retro_machines_dir()), *rel[len(MACHINES_REL):].split('/'))
     return os.path.join(ROOT, rel)
 
 
@@ -342,15 +371,16 @@ def run(name, test, iverilog, vvp, env, fault=None):
         if cart and not os.path.exists(cart):
             raise ValueError('%s missing: run %s' % (cart, ROMDISKS_BUILD))
         extra = test['extra']() if test.get('extra') else []
-    except ValueError as e:
+        files = test['files']() if callable(test['files']) else list(test['files'])
+        incdirs = [os.path.join(ROOT, 'fpga', 'rtl'), os.path.join(ROOT, 'fpga', 'sim', 'system')]
+        incdirs += test['incdirs']() if test.get('incdirs') else []
+        if fault:
+            apply_patch, patched_files = negative()
+    except (ValueError, layout().LayoutError) as e:   # a missing input, or a submodule (one line)
         return False, 'ERROR: %s' % e
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
-    files = test['files']() if callable(test['files']) else list(test['files'])
     if fault:
-        sys.path.insert(0, os.path.join(CORE, 'sim'))
-        sys.dont_write_bytecode = True  # no __pycache__ in the core submodule
-        from negative import apply_patch, patched_files  # the core helper (core PR14)
         patch = os.path.join(NEG, fault + '.patch')
         copy_root = os.path.join(out, 'copy')
         for rel in patched_files(patch):
@@ -367,8 +397,6 @@ def run(name, test, iverilog, vvp, env, fault=None):
     if test.get('inputs'):
         test['inputs'](out)
     exe = os.path.join(out, name + '.vvp')
-    incdirs = [os.path.join(ROOT, 'fpga', 'rtl'), os.path.join(ROOT, 'fpga', 'sim', 'system')]
-    incdirs += test['incdirs']() if test.get('incdirs') else []
     cmd = [iverilog, '-g2012'] + [arg for d in incdirs for arg in ('-I', d)] + ['-s', test['top'], '-o', exe] + files
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=out, env=env)
     if res.returncode:
