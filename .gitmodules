@@ -1,3 +1,6 @@
-[submodule "cores/karabas-go-core-rk86"]
-	path = cores/karabas-go-core-rk86
-	url = https://github.com/BarabashkaD/karabas-go-core-rk86
+[submodule "lib/retroMachines"]
+	path = lib/retroMachines
+	url = https://github.com/BarabashkaD/retroMachines
+[submodule "lib/retro8080Software"]
+	path = lib/retro8080Software
+	url = https://github.com/BarabashkaD/retro8080Software

@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Compiles Icarus testbenches here (the core's machine16 runner or the Pocket fpga/sim runner), runs the
-.vvp files in the rk86-vvp container of this folder over ssh, and judges them with the runner's rules.
-Nothing is simulated on this PC.
+"""Compiles Icarus testbenches here (the tests of the retro libraries' component.toml manifests, as simrun
+builds them, or the Pocket fpga/sim runner), runs the .vvp files in the rk86-vvp container of this folder
+over ssh, and judges them with the runner's rules. Nothing is simulated on this PC.
 
-    python -B scripts/docker2tests/remote_sim.py --repo <root> [--host <docker host>] [--runner fork|pocket]
-        [--port 2222] [--jobs 8] [--negative] [--mutant PATCH ...] [--mem FILE ...] [--iverilog PATH]
-        [--timeout S] [--keep] TEST ...
+    python -B scripts/docker2tests/remote_sim.py --repo <root> [--host <docker host>] [--runner retro|pocket]
+        [--port 2222] [--jobs 8] [--negative] [--mutant PATCH ...] [--replace FILE=FILES ...]
+        [--param NAME=V ...] [--iverilog PATH] [--timeout S] [--keep] TEST ...
 
---runner fork (default): --repo is the core's root (src/sim/machine16/run_machine16_sim.py); --mem
-replaces the runner's TB memory file (one flag per file).
---runner pocket: --repo is the Pocket repo root (fpga/sim/run_sim.py; RK86_CORE_DIR selects the core
-sources as for run_sim.py; a test with 'compare' runs fpga/sim/frame_compare.py locally on the fetched
-frame).
+--runner retro (default): --repo is a retro library checkout (retroMachines, e.g. lib/retroMachines, or
+retroICs); its components and those of its lib/retroICs are found as simrun finds them, and simrun's
+modules (manifest, filelist, hexdata, run.contains, negative) come from that retroICs (tools/). TEST: a
+test name, or <component>:<test> when two components have a test of that name. Compile and fault rules
+are simrun run's (iverilog_flags, include folders, -P parameters, data files as +<name>=<file>; a fault
+patch applies to copies of the files it changes, taken from the repo that owns it); --replace FILE=FILES
+(FILES comma-separated) compiles FILES in place of FILE, and a fault that patches only replaced files is
+SKIPPED; --param NAME=V sets the parameter NAME of every test that declares it.
+--runner pocket: --repo is the Pocket repo root (fpga/sim/run_sim.py; RETRO_MACHINES_DIR selects the
+library checkout as for run_sim.py; a test with 'compare' runs fpga/sim/frame_compare.py locally on the
+fetched frame).
 --host defaults to RK86_VVP_HOST, --port to RK86_VVP_SSH_PORT (else 2222), --iverilog to IVERILOG.
 
 The client key comes from RK86_VVP_KEY (the text the container prints, timestamps allowed); it is
@@ -29,9 +35,9 @@ into <repo>/build/sim/remote16/<run id>/<jid>/out/ (the folder is removed at the
 Compile copies of patched files live in <jid>/copy/ of the same folder.
 Pass rule: vvp exit 0, a line starting with PASS, no line starting with ERROR or containing FATAL
 (for pocket then frame_compare, if the test has 'compare'). A fault is caught when its run fails and
-the expected text is in its output (pocket, as run_sim.py) or in its first ERROR / FATAL line (fork, as
-run_machine16_sim.py; anywhere in the output for an entry marked 'anywhere'; '*' matches any characters). A mutant is CAUGHT (first ERROR / FATAL line printed) or
-SURVIVED; mutants do not change the exit code.
+the expected text is in its output (pocket, as run_sim.py) or in its first ERROR / FATAL line (retro, as
+simrun run; anywhere in the output for a negative with match = "anywhere"; '*' matches any characters). A
+mutant is CAUGHT (first ERROR / FATAL line printed) or SURVIVED; mutants do not change the exit code.
 """
 import argparse
 import concurrent.futures
@@ -126,6 +132,61 @@ def rewrite_vvp(src, dst):
         f.write(text)
 
 
+def retro_tools(repo):
+    """The retroICs tools/ folder of a retro checkout: <repo>/tools (retroICs itself) or
+    <repo>/lib/retroICs/tools (retroMachines)."""
+    for d in (os.path.join(repo, 'tools'), os.path.join(repo, 'lib', 'retroICs', 'tools')):
+        if os.path.isfile(os.path.join(d, 'simrun', 'negative.py')):
+            return d
+    raise ValueError('%s: no retroICs tools (tools/simrun, lib/retroICs/tools/simrun): '
+                     'run git submodule update --init --recursive' % repo)
+
+
+def unique(paths):
+    """The paths as strings, each once (the first), compared as the file system does."""
+    out, seen = [], set()
+    for p in paths:
+        k = os.path.normcase(os.path.abspath(str(p)))
+        if k not in seen:
+            seen.add(k)
+            out.append(str(p))
+    return out
+
+
+def retro_tests(repo, simrun):
+    """{name: test} of every component in <repo> and its lib/retroICs, as simrun finds them: each test
+    under <component>:<test>, and under its bare name when no other component has a test of that name.
+    A test: top, files (the test's, then the RTL with the dependencies first; absolute), incdirs,
+    flags, params, plusargs, data, component, and negatives: (fault, expect, match, patch, owner root)."""
+    manifest, filelist, run = simrun.manifest, simrun.filelist, simrun.run
+    roots = [os.path.abspath(repo)]
+    if os.path.isdir(os.path.join(repo, 'lib', 'retroICs', 'ics')):
+        roots.append(os.path.abspath(os.path.join(repo, 'lib', 'retroICs')))
+    roots = [simrun.Path(r) for r in roots]
+    tests, names = {}, {}
+    for c in simrun.main.discover(roots):
+        for t in c.tests:
+            negs = []
+            for n in c.negatives:
+                if n.test != t.name:
+                    continue
+                m = manifest.LOCAL_FAULT.fullmatch(n.fault)
+                owner = c if m else manifest.resolve(n.fault.split(':', 1)[0], roots)
+                negs.append((manifest.fault_name(c, n), n.expect, n.match,
+                             str(manifest.fault_path(c, n, roots)), str(owner.repo_root)))
+            test = {'top': t.top, 'component': c.name,
+                    'files': unique(list(t.files) + filelist.files(c, roots)),
+                    'incdirs': unique(filelist.incdirs(c, roots) + list(t.incdirs)),
+                    'flags': run.compile_flags(c, roots), 'params': dict(t.params),
+                    'plusargs': dict(t.plusargs), 'data': t.data, 'negatives': negs}
+            tests['%s:%s' % (c.name, t.name)] = test
+            names.setdefault(t.name, []).append(test)
+    for name, found in names.items():
+        if len(found) == 1:
+            tests[name] = found[0]
+    return tests
+
+
 def load_runner(kind, repo):
     """Returns an object with tests, root, plus the hooks of the runner."""
     class RunnerInfo:
@@ -134,18 +195,24 @@ def load_runner(kind, repo):
     r.kind = kind
     r.root = repo
     sys.dont_write_bytecode = True
-    if kind == 'fork':
-        sys.path.insert(0, os.path.join(repo, 'src', 'sim', 'machine16'))
-        sys.path.insert(0, os.path.join(repo, 'src', 'sim'))
-        import run_machine16_sim as R  # noqa: E402
-        from negative import apply_patch, patched_files  # noqa: E402
-        r.mod, r.tests, r.root = R, R.TESTS, R.ROOT
-        r.neg_dir = os.path.join(R.ROOT, R.NEGATIVE_DIR)
+    if kind == 'retro':
+        sys.path.insert(0, retro_tools(repo))
+        import pathlib  # noqa: E402
+        from simrun import __main__ as simrun_main, filelist, hexdata, manifest  # noqa: E402
+        from simrun import run as simrun_run  # noqa: E402
+        from simrun.negative import apply_patch, patched_files  # noqa: E402
+
+        class Simrun:
+            pass
+        s = Simrun()
+        s.main, s.filelist, s.hexdata, s.manifest, s.run, s.Path = (simrun_main, filelist, hexdata, manifest,
+                                                                    simrun_run, pathlib.Path)
+        r.mod, r.simrun, r.tests = simrun_run, s, retro_tests(repo, s)
+        r.neg_dir = None   # each negative names its own patch
     else:
         sys.path.insert(0, os.path.join(repo, 'fpga', 'sim'))
         import run_sim as R  # noqa: E402
-        sys.path.insert(0, os.path.join(R.CORE, 'sim'))
-        from negative import apply_patch, patched_files  # noqa: E402
+        apply_patch, patched_files = R.negative()   # retroICs' simrun.negative (run_sim.py)
         r.mod, r.tests, r.root = R, R.TESTS, R.ROOT
         r.neg_dir = R.NEG
     r.apply_patch, r.patched_files = apply_patch, patched_files
@@ -155,7 +222,7 @@ def load_runner(kind, repo):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--repo', required=True)
-    ap.add_argument('--runner', choices=['fork', 'pocket'], default='fork')
+    ap.add_argument('--runner', choices=['retro', 'pocket'], default='retro')
     ap.add_argument('--host', default=os.environ.get('RK86_VVP_HOST'),
                     help='the Docker host (default: RK86_VVP_HOST)')
     ap.add_argument('--port', type=int, default=int(os.environ.get('RK86_VVP_SSH_PORT', '2222')))
@@ -167,8 +234,10 @@ def main():
     ap.add_argument('--iverilog', default=os.environ.get('IVERILOG', 'iverilog'))
     ap.add_argument('--timeout', type=int, default=7200, help='limit of the remote run, s')
     ap.add_argument('--keep', action='store_true', help='keep the local build folder with the logs')
-    ap.add_argument('--mem', action='append', default=[],
-                    help='fork: a file compiled in place of the runner MEM (repeat the flag per file)')
+    ap.add_argument('--replace', action='append', default=[], metavar='FILE=FILES',
+                    help='retro: compile FILES (comma-separated) in place of FILE, as simrun run --replace')
+    ap.add_argument('--param', action='append', default=[], metavar='NAME=V',
+                    help='retro: the parameter NAME of every test that declares it, as simrun run --param')
     ap.add_argument('tests', nargs='+')
     a = ap.parse_args()
 
@@ -176,14 +245,32 @@ def main():
         print('ERROR: no host: pass --host or set RK86_VVP_HOST')
         return 2
     repo = os.path.abspath(a.repo)
-    R = load_runner(a.runner, repo)
     pocket = a.runner == 'pocket'
+    if pocket and (a.replace or a.param):
+        print('ERROR: --replace and --param are for --runner retro')
+        return 2
+    try:
+        R = load_runner(a.runner, repo)
+        replace = R.mod.parse_replace(a.replace) if not pocket else {}
+        params = R.mod.parse_param(a.param) if not pocket else {}
+    except (ValueError, RuntimeError) as e:   # a missing submodule, a manifest error, a bad option
+        print('ERROR: %s' % e)
+        return 2
     root = R.root
+    rep = {os.path.normcase(os.path.abspath(k)): [os.path.abspath(v) for v in vs] for k, vs in replace.items()}
 
     unknown = [t for t in a.tests if t not in R.tests]
     if unknown:
         print('ERROR: unknown tests: %s' % ', '.join(unknown))
         return 2
+    if not pocket:
+        used = {os.path.normcase(os.path.abspath(f)) for t in a.tests for f in R.tests[t]['files']}
+        bad = [k for k in replace if os.path.normcase(os.path.abspath(k)) not in used]
+        bad += ['%s (not found)' % v for vs in rep.values() for v in vs if not os.path.isfile(v)]
+        bad += ['--param %s' % p for p in params if not any(p in R.tests[t]['params'] for t in a.tests)]
+        if bad:
+            print('ERROR: --replace/--param not used by the tests named, or a file missing: %s' % ', '.join(bad))
+            return 2
     iverilog = shutil.which(a.iverilog)
     if not iverilog:
         print('ERROR: iverilog not found: %s' % a.iverilog)
@@ -200,24 +287,36 @@ def main():
     build = os.path.join(repo, 'build', 'sim', 'remote16', run_id)
     os.makedirs(build)
 
-    # The job list: (job, test name, kind, fault or patch, expected)
-    jobs = []
+    # The job list: (job, test name, kind, fault or patch, expected); a retro fault patches files of the
+    # repo that owns its patch (owner_of)
+    jobs, owner_of, fault_name, skipped = [], {}, {}, []
     for name in a.tests:
         test = R.tests[name]
-        jobs.append(('%s__main' % name, name, 'main', None, None))
+        tag = name.replace('/', '_').replace(':', '__')
+        jobs.append(('%s__main' % tag, name, 'main', None, None))
         if a.negative:
-            for entry in test.get('negatives', []):   # (fault, expected) or (fault, expected, 'anywhere')
+            # pocket: (fault, expected), anywhere in the output; retro: (fault, expect, match, patch, owner root)
+            for entry in test.get('negatives', []):
                 fault, expected = entry[0], entry[1]
-                anywhere = pocket or (len(entry) > 2 and entry[2] == 'anywhere')
-                jobs.append(('%s__f_%s' % (name, fault.replace('/', '_')), name, 'fault',
-                             os.path.join(R.neg_dir, fault + '.patch'), (expected, anywhere)))
+                anywhere = pocket or entry[2] == 'anywhere'
+                patch = os.path.join(R.neg_dir, fault + '.patch') if pocket else entry[3]
+                jid = '%s__f_%s' % (tag, re.sub(r'[^A-Za-z0-9_.-]', '_', fault))
+                if not pocket:
+                    owner_of[jid] = entry[4]
+                    rels = R.patched_files(patch)
+                    if rep and rels and all(os.path.normcase(os.path.abspath(os.path.join(entry[4], r))) in rep
+                                            for r in rels):
+                        skipped.append('%s: negative %s SKIPPED (--replace: it patches only %s)'
+                                       % (name, fault, ', '.join(rels)))
+                        continue
+                jobs.append((jid, name, 'fault', patch, (expected, anywhere)))
+                # the Pocket runner prints the fault as written in TESTS (may hold a '/'); retro: <owner>:<name>
+                fault_name[jid] = fault
         for i, p in enumerate(a.mutant):
-            jobs.append(('%s__m%02d' % (name, i), name, 'mutant', os.path.abspath(p), None))
-    fault_name = {j[0]: j[3] and os.path.basename(j[3])[:-6] for j in jobs}
-    if pocket:   # the Pocket runner prints the fault as written in TESTS (may hold a '/')
-        for jid, name, kind, patch, _ in jobs:
-            if kind == 'fault':
-                fault_name[jid] = os.path.relpath(patch, R.neg_dir).replace('\\', '/')[:-6]
+            jid = '%s__m%02d' % (tag, i)
+            jobs.append((jid, name, 'mutant', os.path.abspath(p), None))
+            owner_of[jid] = root
+            fault_name[jid] = os.path.basename(p)[:-6]
 
     hex_lock = threading.Lock()
 
@@ -228,14 +327,16 @@ def main():
         os.makedirs(out)
         try:
             files = test['files']() if callable(test['files']) else list(test['files'])
-            if a.mem and not pocket:
-                files = [m for f in files for m in ([os.path.abspath(x) for x in a.mem] if f == R.mod.MEM else [f])]
-            paths = [f if pocket else os.path.join(root, f) for f in files]
+            if not pocket:   # --replace (simrun's rule: by the file's path)
+                files = [m for f in files for m in rep.get(os.path.normcase(os.path.abspath(f)), [f])]
+            paths = list(files)
             if patch:
                 copy_root = os.path.join(out, 'copy')
-                fsrc = getattr(R.mod, 'fault_source', None) if pocket else None   # core files from RK86_CORE_DIR
                 for rel in R.patched_files(patch):
-                    src = fsrc(rel) if fsrc else os.path.join(root, rel)
+                    # pocket: library files from the checkout in use (run_sim.fault_source); retro: from the
+                    # repo that owns the patch
+                    src = (R.mod.fault_source(rel) if pocket
+                           else os.path.normpath(os.path.join(owner_of[jid], *rel.split('/'))))
                     idx = [i for i, p in enumerate(paths) if os.path.normcase(p) == os.path.normcase(src)]
                     if not idx:
                         if pocket:   # as run_sim.run(): copy and patch anyway
@@ -268,14 +369,15 @@ def main():
                 incdirs += test['incdirs']() if test.get('incdirs') else []   # as run_sim.run()
                 cmd_head = [iverilog, '-g2012'] + [x for d in incdirs for x in ('-I', d)] + ['-s', top]
                 cmd_tail = []
-            else:
-                plus = ['+%s=%s' % (k, v) for k, v in test.get('plusargs', {}).items()]
-                hx = getattr(R.mod, 'write_hexfiles', None)
-                if hx:
-                    made = hx(test, out, prefix='')
-                    plus += ['+%s=%s' % (k, v) for k, v in made.items()]
-                cmd_head = [iverilog, '-g2005', '-s', top]
-                cmd_tail = ['-P%s.%s=%s' % (top, k, v) for k, v in sorted(test.get('params', {}).items())]
+            else:   # as simrun run (_execute): flags, -I, -s, -o, -P, files; data files as +<name>=<file>
+                plus = ['+%s=%s' % (k, v) for k, v in test['plusargs'].items()]
+                made = R.simrun.hexdata.write_hexfiles(test['data'], out)
+                plus += ['+%s=%s' % (k, v) for k, v in made.items()]
+                cmd_head = ([iverilog] + list(test['flags']) + [x for d in test['incdirs'] for x in ('-I', d)]
+                            + ['-s', top])
+                p = dict(test['params'])
+                p.update({k: v for k, v in params.items() if k in p})
+                cmd_tail = ['-P%s.%s=%s' % (top, k, v) for k, v in sorted(p.items())]
             raw = os.path.join(out, 'raw.vvp')
             res = subprocess.run(cmd_head + ['-o', raw] + cmd_tail + paths,
                                  capture_output=True, text=True, cwd=out, env=env)
@@ -284,9 +386,11 @@ def main():
             rewrite_vvp(raw, os.path.join(out, jid + '.vvp'))
             plus_of[jid] = plus
             return None
-        except (ValueError, OSError, SystemExit) as e:
+        except (ValueError, OSError, RuntimeError, SystemExit) as e:   # RuntimeError: a missing submodule
             return 'ERROR: %s' % e
 
+    for line in skipped:
+        print(line)
     plus_of = {}
     with concurrent.futures.ThreadPoolExecutor(4) as ex:
         cerr = dict(zip([j[0] for j in jobs], ex.map(compile_job, jobs)))

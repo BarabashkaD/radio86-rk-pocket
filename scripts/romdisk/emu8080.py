@@ -5,7 +5,7 @@ Stubs: F818 print string at HL, F803 get a key, FA68 copy ROM disk HL..DE to RAM
 FE01, FE72: 18 bytes with the return address).
 
 run_menu: the ROM disk menus (its stubs set only HL and BC after FA68 and A after F803).
-run_until: runs until stop(pc) is true, with stubs closer to the monitor (BIOS.BIN): F818 returns A = 0,
+run_until: runs until stop(pc) is true, with stubs closer to the monitor (monitor.bin): F818 returns A = 0,
 HL = the 0 byte, C = the last character printed, models CLS (1Fh) as zeroing 76D0-7FF4, and refuses
 (EmuError) when the monitor's variables 7600-765F changed since the run started; FA68 returns A = E,
 Z set, HL = DE, BC + count, and refuses a request of 65536 bytes (DE = HL - 1); any other address in

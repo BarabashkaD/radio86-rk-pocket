@@ -1,6 +1,6 @@
 """Tests of the release script (scripts/release/make_release.py).
 
-The full runs need mtools (MTOOLS_DIR or PATH), the core submodule and the fetched assets
+The full runs need mtools (MTOOLS_DIR or PATH), the submodules and the fetched assets
 (python -B scripts/fetch_assets.py); without them the tests fail with a hint, they never pass
 silently. Two full runs in setUpClass: one from a stand-in bitstream (a -ci-test version, the only
 kind that takes a bitstream below 1 MB), then one from the core zip of the first (the re-run of CI);
@@ -264,7 +264,19 @@ class Checks(unittest.TestCase):
 
     def test_tapes_missing(self):
         with mock.patch.object(package, 'PK_DIR', os.path.join(self.tmp, 'pk')):
-            self.refused(self.argv(), r'pk')
+            self.refused(self.argv(), r'game tapes')
+        # the tapes without DESCRIPT.ION (the game titles)
+        pk = os.path.join(self.tmp, 'pk-no-titles')
+        os.mkdir(pk)
+        for name in package.build_romdisks.pk_files(package.PK_DIR):
+            shutil.copyfile(os.path.join(package.PK_DIR, name), os.path.join(pk, name))
+        with mock.patch.object(package, 'PK_DIR', pk):
+            self.refused(self.argv(), r'game tapes')
+
+    def test_library_files_missing(self):
+        # the monitor, the font and the sources of the package's licence files come from lib/retroMachines
+        with mock.patch.object(package, 'MACHINES_DIR', os.path.join(self.tmp, 'machines')):
+            self.refused(self.argv(), r'(lib/retroMachines|RETRO_MACHINES_DIR) is missing machines/rk86/roms/monitor\.bin')
 
     def test_changelog_missing(self):
         with mock.patch.object(make_release, 'CHANGELOG', os.path.join(self.tmp, 'CHANGELOG.md')):
@@ -793,7 +805,7 @@ ACTION = re.compile(r'(actions/checkout|actions/setup-python|actions/upload-arti
                     r'@[0-9a-f]{40}')
 INPUTS_PATH, FILES_PATH = '${{ runner.temp }}/release-inputs', '${{ runner.temp }}/release'
 ACTION_WITH = {
-    'actions/checkout': {'ref': {'${{ needs.find.outputs.sha }}'}, 'submodules': {'true'},
+    'actions/checkout': {'ref': {'${{ needs.find.outputs.sha }}'}, 'submodules': {'recursive'},
                          'persist-credentials': {'false'}},
     'actions/setup-python': {'python-version': {'3.14'}},
     'actions/upload-artifact': {'name': {'release-inputs-${{ github.run_attempt }}', 'release-files-${{ github.run_attempt }}'},
@@ -1344,7 +1356,7 @@ CHANGES = {
     'another environment': _replace('    environment: release\n', '    environment: staging\n'),
     'checkout in the write job': _after(_WRITE_JOB, '      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n'
                                                     '        with:\n          ref: ${{ needs.find.outputs.sha }}\n'
-                                                    '          submodules: true\n          persist-credentials: false\n'),
+                                                    '          submodules: recursive\n          persist-credentials: false\n'),
     'profile shell dropped in the write job': _replace_last(_SHELL_LINE, ''),
     'other shell': _replace(_SHELL_LINE, '        shell: bash\n'),
     'token in the job env': _after('      TZ: UTC\n', '      GH_TOKEN: ${{ github.token }}\n'),
@@ -1363,12 +1375,13 @@ CHANGES = {
     'unpinned action': _step('      - uses: actions/checkout@v7\n'),
     'local action': _step('      - uses: ./.github/actions/setup-iverilog\n'),
     'reusable workflow': _step('  other:\n    uses: o/r/.github/workflows/x.yml@main\n'),
-    'draft input of an action': _after('          submodules: true\n', '          draft: false\n'),
+    'draft input of an action': _after('          submodules: recursive\n', '          draft: false\n'),
     'step condition': _after(_FIND, '        if: always()\n'),
     'continue on error': _after(_FIND, '        continue-on-error: true\n'),
     'secret token': _replace('GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}'),
     'other env expression': _replace('TAG: ${{ inputs.tag }}', 'TAG: ${{ github.event.inputs.tag }}'),
     'credentials kept': _replace('persist-credentials: false', 'persist-credentials: true'),
+    'checkout without the nested submodules': _replace('submodules: recursive', 'submodules: true'),
     'built files from the find job': _replace('path: ${{ runner.temp }}/release-inputs/', 'path: ${{ runner.temp }}/release/'),
     'built files kept 7 days': _replace('          retention-days: 1\n', '          retention-days: 7\n'),
     'download into the workspace': _replace('path: ${{ runner.temp }}/release-inputs\n', 'path: ${{ github.workspace }}\n'),

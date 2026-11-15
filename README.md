@@ -222,7 +222,7 @@ Copy `fatcard.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in t
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the Karabas core, each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). From the first release after 0.8.2 on they are on the release page ([ROM disk images](#rom-disk-images)), not in the package (0.8.2's package had them); `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the 1999 collection in [retro8080Software](https://github.com/BarabashkaD/retro8080Software) (`rk86/collections/pyhonin-1999/`), each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). From the first release after 0.8.2 on they are on the release page ([ROM disk images](#rom-disk-images)), not in the package (0.8.2's package had them); `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
 
 <!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->
 **`romdisk-1.bin`** (9 games)
@@ -341,7 +341,7 @@ The date comes from the heading `## <version> (<date>)` of `CHANGELOG.md`; `--da
 
 - Prerequisites (versions, sources, environment variables: [AGENTS.md, section 3](AGENTS.md#3-prerequisites)): Quartus Prime Lite 25.1std with Cyclone V device support (no licence file needed; the bitstream only); Icarus Verilog 13.0 (the simulations and the Python tests); Python 3.14 (standard library only); PowerShell 7 (also for the release tests); git; mtools (the FAT16 card, `make_release.py` and their tests). Tools on PATH need no environment variables.
 - The bitstream builds on Windows only; the simulations, the Python tests and the package dry run (`pwsh -File scripts/ci/package-dry-run.ps1`) also on Linux, as in CI.
-- A GitHub source zip has no submodule (`cores/karabas-go-core-rk86`): clone with `--recursive`. `fetch_assets.py` needs the network once (GitHub); `package.py` does not need it, `make_release.py`, the card builders and the tests do.
+- A GitHub source zip has no submodules (`lib/retroMachines` with its `lib/retroICs`, and `lib/retro8080Software`): clone with `--recursive`, or run `git submodule update --init --recursive` in a clone. Without them the build, the simulations, `package.py` and the tests stop with one error that names this command. `fetch_assets.py` needs the network once (GitHub); `package.py` does not need it, `make_release.py`, the card builders and the tests do.
 - The package holds no ROM disk image. The game disks (`python -B scripts/romdisk/build_romdisks.py`) and the card images ([J6 card menu](#j6-card-menu), [FAT16 card](#fat16-card)) are built separately, or all at once by `make_release.py`; the FAT16 card and its tests need mtools (`MTOOLS_DIR` or PATH).
 - A published release's files are made by the release workflow (`.github/workflows/release.yml`) from the maintainer's bitstream ([AGENTS.md, section 6](AGENTS.md#6-build-and-test)). A local zip may differ in bytes from the release's even from the same bitstream (another zlib build).
 
@@ -349,10 +349,12 @@ Design, build and tests: [fpga/README.md](fpga/README.md). Instructions for codi
 
 ## Credits
 
+- **Д. Горшков, Г. Зеленко, Ю. Озеров, С. Попов** (D. Gorshkov, G. Zelenko, Yu. Ozerov, S. Popov): the Radio-86RK and its monitor (Радио 1986).
 - **Dmitry Tselikov**: the FPGA Radio-86RK replica (2010-2011; [his FPGA page](http://bashkiria-2m.narod.ru/index/fpga/0-12)); his DMA and CRT models are the base of this core's 8257 and 8275.
-- **[Karabas Go core](https://github.com/andykarpov/karabas-go-core-rk86)** by Andy Karpov, with ports by Dmitriy Schapotschkin and Oleh Chastukhin: the monitor, font and game tapes. The machine `rk86_machine16` is in the fork [BarabashkaD/karabas-go-core-rk86](https://github.com/BarabashkaD/karabas-go-core-rk86), branch `rk86-16mhz`, `src/rtl/rk86_16/`.
-- **Vslav** (1801BM1): the 8080 model, CC-BY 3.0 (<https://creativecommons.org/licenses/by/3.0/>), from the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) at `4b37da2`.
-- **Sorgelig**: the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) for MiSTer, source of the 8080, 8257 and 8275 models.
+- **[Karabas Go core](https://github.com/andykarpov/karabas-go-core-rk86)** by Andy Karpov, with ports by Dmitriy Schapotschkin and Oleh Chastukhin: the monitor, font and game tapes first came from it. The machine `rk86_machine16` was made in the fork [BarabashkaD/karabas-go-core-rk86](https://github.com/BarabashkaD/karabas-go-core-rk86) (branch `rk86-16mhz`) up to 0.9.0.
+- **Libraries**: the machine, the monitor and the font now come from [retroMachines](https://github.com/BarabashkaD/retroMachines), the chip models from [retroICs](https://github.com/BarabashkaD/retroICs), the game tapes from [retro8080Software](https://github.com/BarabashkaD/retro8080Software), all first taken from the fork.
+- **Vslav** (1801BM1): the 8080 model, CC BY 3.0 (<https://creativecommons.org/licenses/by/3.0/>), from the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) at `4b37da2`.
+- **Sorgelig**: the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) for MiSTer, where the 8080, 8257 and 8275 models were taken from; his changes are in the base of the 8275 model.
 - **Sergey Kiselev**: the [Radio-86RK re-make](https://github.com/skiselev/radio-86rk): the ROM disk, the keyboard design and colours, the schematics this core follows with the original's (Радио 1986 No. 4-5).
 
 Licences: [LICENSES.md](LICENSES.md).

@@ -10,11 +10,32 @@ low = pressed). Only the opcodes the routine runs are implemented; any other rai
 Usage: python -B scripts/k1/monitor_decoder.py   (prints the 64 x 8 table)
 """
 import functools
+import importlib.util
 import os
+import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-CORE_SRC = os.path.abspath(os.environ.get('RK86_CORE_DIR', os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'src')))
-ROM = os.path.join(CORE_SRC, 'roms', 'BIOS.BIN')
+
+
+def _roms():
+    """The monitor's folder in lib/retroMachines (scripts/layout.py rk86_roms(), loaded under its own
+    module name: this folder's layout.py is the K1 table). The default submodule is checked: a
+    missing or non-recursive one is one ERROR line naming git submodule update --init --recursive
+    (SystemExit), never a traceback. A set RETRO_MACHINES_DIR stays unchecked, so that reading ROM
+    names the missing file there."""
+    name = 'rk86_repo_layout'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, os.path.join(ROOT, 'scripts', 'layout.py'))
+        sys.modules[name] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sys.modules[name])
+    layout = sys.modules[name]
+    try:
+        return str(layout.rk86_roms(check=not os.environ.get('RETRO_MACHINES_DIR')))
+    except layout.LayoutError as e:
+        raise SystemExit('ERROR: %s' % e)
+
+
+ROM = os.path.join(_roms(), 'monitor.bin')
 ROM_BASE = 0xF800
 ENTRY = 0xFE72          # the decoder: returns the key code in A (FFh no key, FEh РУС pressed)
 RUS_BYTE = 0x7606       # 00h LAT, nonzero (the monitor stores FFh) RUS

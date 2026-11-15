@@ -633,13 +633,17 @@ def main(argv=None):
                                              % (CARD_IMAGE, CARD_JSON))
     ap.add_argument('--out', default=os.path.join('build', 'fatcard'),
                     help='output directory, relative to the repository (default build/fatcard)')
-    ap.add_argument('--pk', default=os.path.join('cores', 'karabas-go-core-rk86', 'pk'),
-                    help='the game tapes (default: the submodule\'s pk)')
+    ap.add_argument('--pk', help='the game tapes (default: those of lib/retro8080Software, scripts/layout.py pk_dir())')
     ap.add_argument('--romdisk', default=os.path.join('build', 'assets', 'romdisk.bin'),
                     help='Kiselev\'s ROM disk image (default build/assets/romdisk.bin)')
     ap.add_argument('--sim', action='store_true', help='also card-sim.img and card-sim.json')
     args = ap.parse_args(argv)
-    out, pk, romdisk = repo_path(args.out), repo_path(args.pk), repo_path(args.romdisk)
+    try:
+        pk = repo_path(args.pk) if args.pk else build_romdisks.default_pk(ROOT)
+    except RuntimeError as e:   # LayoutError: the submodule is missing
+        print('error: %s' % e, file=sys.stderr)
+        return 1
+    out, romdisk = repo_path(args.out), repo_path(args.romdisk)
     if not os.path.isfile(romdisk):
         print('error: %s missing: run python -B scripts/fetch_assets.py' % os.path.basename(romdisk),
               file=sys.stderr)

@@ -139,8 +139,10 @@ fully frozen index, point apt at `snapshot.debian.org`.
 ## 9. The batch runner `remote_sim.py`
 
 Runs the repository's test benches in the container with the same pass rules
-as the local runners: the core's `src/sim/machine16/run_machine16_sim.py`
-(`--runner fork`, `--repo` = the core's root) or the Pocket's
+as the local runners: the tests of the libraries' `component.toml` manifests,
+built and judged as `simrun run` does (`--runner retro`, `--repo` = a library
+checkout: `lib/retroMachines`, whose `lib/retroICs` is searched too, or a
+retroICs checkout; simrun's modules come from that retroICs) or the Pocket's
 `fpga/sim/run_sim.py` (`--runner pocket`, `--repo` = this repository's root;
 frame compares run on the PC on the fetched frames).
 
@@ -148,9 +150,14 @@ frame compares run on the PC on the fetched frames).
 $env:RK86_VVP_KEY  = <the key lines from the container's console>
 $env:RK86_VVP_HOST = <docker host>          # or --host
 python -B scripts/docker2tests/remote_sim.py --runner pocket --repo . --jobs 2 --negative boot
-python -B scripts/docker2tests/remote_sim.py --runner fork --repo cores/karabas-go-core-rk86 machine16
+python -B scripts/docker2tests/remote_sim.py --runner retro --repo lib/retroMachines --negative machine16
 Remove-Item env:RK86_VVP_KEY
 ```
+
+- `--runner retro`: a test by its name (`machine16`, `vv55`, ...), or as
+  `<component>:<test>` (`machines/rk86:machine16`) when two components have a
+  test of that name. A fault is caught when its first ERROR / FATAL line holds
+  the expected text (anywhere in the output for `match = "anywhere"`).
 
 - Each job (a test, each of its faults with `--negative`, each `--mutant
   PATCH`) is compiled on the PC, rewritten (section 6) and run in its own
@@ -164,13 +171,16 @@ Remove-Item env:RK86_VVP_KEY
   it; `--timeout` (seconds, default 7200) stops only this run. Long system
   scenarios need `--timeout 43200`.
 - Compile from a tree nobody edits during the compile, e.g. a `git worktree` of
-  the commit under test (for the Pocket runner: `RK86_CORE_DIR` set to the
-  worktree's `src`). Fault patches made by temporary edits would otherwise end
-  up in the run.
-- `--mem FILE` (fork runner, one flag per file) compiles these files in place
-  of the core TB's memory model, e.g. the Pocket's
-  `fpga/sim/memory/tb_rk86_mem16.v` and `fpga/rtl/pocket_memory.v` (absolute
-  paths).
+  the commit under test with its submodules (`git submodule update --init
+  --recursive` in it; for the Pocket runner from another tree:
+  `RETRO_MACHINES_DIR` set to that tree's `lib/retroMachines`). Fault patches
+  made by temporary edits would otherwise end up in the run.
+- `--replace FILE=FILES` (retro runner, FILES comma-separated) compiles these
+  files in place of FILE, as `simrun run --replace`, e.g. the machine TB's
+  memory model `lib/retroMachines/machines/rk86/tb/tb_rk86_mem16.v` replaced by
+  the Pocket's `fpga/sim/memory/tb_rk86_mem16.v` and `fpga/rtl/pocket_memory.v`
+  (a fault that patches only replaced files is SKIPPED); `--param NAME=V` sets
+  a test parameter, as `simrun run --param` (`FRAMES` of `machine16`).
 
 ## 10. Troubleshooting
 

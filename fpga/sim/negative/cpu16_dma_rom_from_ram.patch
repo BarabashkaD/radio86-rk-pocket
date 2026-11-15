@@ -1,7 +1,8 @@
-diff --git a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
---- a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
-+++ b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
-@@ -109,7 +109,7 @@ always @(*) cpu_i = rd_mux(cpu_a, startup, mem_di, ppa_o, ext_di, crt_o);
+diff --git a/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v b/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
+index 6836b91..e14fd64 100644
+--- a/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
++++ b/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
+@@ -110,7 +110,7 @@ always @(*) cpu_i = rd_mux(cpu_a, startup, mem_di, ppa_o, ext_di, crt_o);
  assign dma_di = rd_mux(bus_a, startup, mem_di, ppa_o, ext_di, crt_o);
  // the monitor: bus_a E000-FFFF (the CPU's or the 8257's address), every address during start-up (the 8257 makes no
  // transfer then: RESET resets it, and start-up ends at the monitor's first read with A15 = 1, before it programs it)

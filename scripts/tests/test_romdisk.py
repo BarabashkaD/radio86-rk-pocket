@@ -1,8 +1,13 @@
 """Tests of scripts/romdisk: the 8080 assembler, the loaders, the emulator, the disk build."""
 import hashlib
 import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 sys.path.insert(0, os.path.join(ROOT, 'scripts', 'romdisk'))
@@ -12,7 +17,10 @@ import emu8080  # noqa: E402
 import loader  # noqa: E402
 
 ASSETS = os.path.join(ROOT, 'build', 'assets')
-PK = os.path.join(ROOT, 'cores', 'karabas-go-core-rk86', 'pk')
+try:
+    PK = build_romdisks.default_pk(ROOT)   # the game tapes of lib/retro8080Software
+except RuntimeError:   # LayoutError: not checked out; the tests that read it skip (unit-tests.ps1 fails then)
+    PK = os.path.join(ROOT, 'lib', 'retro8080Software', 'rk86', 'collections', 'pyhonin-1999')
 KISELEV_LOADER_SHA256 = 'f46be1e22c06e39a0cd1bdeb56bcd28f4356cce505d7e13571fc6c992a82b044'
 
 
@@ -159,7 +167,7 @@ class Build(unittest.TestCase):
 
     def test_the_five_disks(self):
         if not os.path.isdir(PK):
-            self.skipTest('core submodule not checked out')
+            self.skipTest('lib/retro8080Software not checked out')
         disks = build_romdisks.build(PK)
         self.assertEqual(len(disks), 5)
         files = sorted(e['file'] for d in disks for e in d['entries'])
@@ -189,7 +197,7 @@ class Build(unittest.TestCase):
 
     def test_readme_game_list_is_current(self):
         if not os.path.isdir(PK):
-            self.skipTest('core submodule not checked out')
+            self.skipTest('lib/retro8080Software not checked out')
         meta = build_romdisks.metadata(build_romdisks.build(PK), build_romdisks.descriptions(PK))
         with open(os.path.join(ROOT, 'README.md'), encoding='utf-8') as f:
             text = f.read()
@@ -198,6 +206,48 @@ class Build(unittest.TestCase):
         section = text[begin + len(build_romdisks.README_BEGIN):end].strip('\n')
         self.assertEqual(section, build_romdisks.readme_list(meta),
                          'README.md game list is stale: python -B scripts/romdisk/build_romdisks.py --readme')
+
+    def test_pk_from_software_repo(self):
+        # the game tapes come from the submodule lib/retro8080Software, byte for byte as its
+        # PROVENANCE.md lists them (52 files: 26 .GAM, 22 .RKR, bios.rk and the three notes)
+        if not os.path.isdir(PK):
+            self.skipTest('lib/retro8080Software not checked out')
+        with mock.patch.dict(os.environ):
+            os.environ.pop('RETRO_SOFTWARE_DIR', None)
+            pk = build_romdisks.default_pk(ROOT)
+        software = os.path.join(ROOT, 'lib', 'retro8080Software')
+        self.assertEqual(os.path.normcase(pk), os.path.normcase(
+            os.path.join(software, 'rk86', 'collections', 'pyhonin-1999')))
+        with open(os.path.join(pk, 'PROVENANCE.md'), encoding='utf-8') as f:
+            rows = re.findall(r'^\| `([^`]+)` \| (\d+) \| `([0-9a-f]{64})` \|$', f.read(), re.M)
+        self.assertEqual(len(rows), 52)
+        self.assertEqual(sorted(n for n in os.listdir(pk) if n != 'PROVENANCE.md'), sorted(r[0] for r in rows))
+        for name, size, sha in rows:
+            with open(os.path.join(pk, name), 'rb') as f:
+                data = f.read()
+            self.assertEqual((len(data), hashlib.sha256(data).hexdigest()), (int(size), sha), name)
+        exts = [os.path.splitext(n)[1].upper() for n, _, _ in rows]
+        self.assertEqual((exts.count('.GAM'), exts.count('.RKR')), (26, 22))
+
+    def test_descriptions_required(self):
+        # DESCRIPT.ION holds the game titles of the menus, info.txt and ROMDISKS.txt: a tape folder
+        # without it is an error, also when it is given with --pk
+        if not os.path.isdir(PK):
+            self.skipTest('lib/retro8080Software not checked out')
+        with tempfile.TemporaryDirectory() as tmp:
+            pk = os.path.join(tmp, 'pk')
+            os.makedirs(pk)
+            for name in build_romdisks.pk_files(PK):
+                shutil.copyfile(os.path.join(PK, name), os.path.join(pk, name))
+            self.assertEqual(len(build_romdisks.build(pk)), 5)        # the tapes alone are complete
+            with self.assertRaisesRegex(OSError, r'DESCRIPT\.ION'):
+                build_romdisks.descriptions(pk)
+            out = os.path.join(tmp, 'out')
+            res = subprocess.run([sys.executable, '-B', os.path.join(ROOT, 'scripts', 'romdisk', 'build_romdisks.py'),
+                                  '--pk', pk, '--out', out], capture_output=True, text=True)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertRegex(res.stderr, r'^ERROR: .*DESCRIPT\.ION')
+            self.assertFalse(os.path.exists(out))
 
 
 if __name__ == '__main__':

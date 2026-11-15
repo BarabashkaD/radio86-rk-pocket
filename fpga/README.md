@@ -2,17 +2,21 @@
 
 The FPGA side of the Radio-86RK core for the Analogue Pocket (Cyclone V 5CEBA4F23C8, Quartus Prime Lite 25.1std). It is self-contained: the SD package in `../package/` only needs the bitstream that this directory builds.
 
-The Radio-86RK machine is `rk86_machine16` of the Karabas core fork (`src/rtl/rk86_16/`): the original's 16 MHz machine at bus-cycle level, every chip to its data sheet. `fpga/` reads it only through `RK86_CORE_DIR`, the core's `src` directory, and its source list `rk86_machine16.prj`; the default is `../../cores/karabas-go-core-rk86/src`, the submodule. The core sources are never copied or patched. Moving `fpga/` elsewhere means changing `RK86_CORE_DIR`.
+The Radio-86RK machine is `rk86_machine16` of [retroMachines](https://github.com/BarabashkaD/retroMachines) (`machines/rk86/`, submodule `lib/retroMachines`), built from the chip models of [retroICs](https://github.com/BarabashkaD/retroICs) (`ics/intel/`, its submodule `lib/retroMachines/lib/retroICs`): the original's 16 MHz machine at bus-cycle level, every chip to its data sheet. `fpga/` reads them only through the submodules (`scripts/layout.py`; `RETRO_MACHINES_DIR` for another checkout); the file list comes from the machine's `component.toml` (`scripts/simrun.py filelist machines/rk86`). The library sources are never copied or patched here.
+
+The Pocket's deviations from the original board: [implementation.md](implementation.md).
 
 ## Architecture
 
-The Karabas boards and the Pocket run the same Radio-86RK code: the board-neutral modules of the Karabas core (the CPU, DMA, CRT controller, PPI, the address decoding and the native video). Each platform puts its own board around them: the clock, the memory and the ROMs, the keyboard, the device in the A000-BFFF block, the display and the sound. How a platform connects the modules is in the core's [docs/integration.md](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/d995355b9a27aa20f4495a617186b3f088e77d34/docs/integration.md); its [README](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/d995355b9a27aa20f4495a617186b3f088e77d34/README.md#architecture) has the Karabas side in more detail (both at the commit the submodule pins).
+The libraries hold the parts that do not depend on a board: retroICs one folder per chip (data sheet record, model, TBs, faults), retroMachines the machines built from them (the CPU, DMA, CRT controller, PPI, the address decoding, the native video, the ROMs), [retro8080Software](https://github.com/BarabashkaD/retro8080Software) the programs (here the game tapes). Each platform puts its own board around the machine: the clock, the memory and the ROMs, the keyboard, the device in the A000-BFFF block, the display and the sound.
 
-The Pocket runs `rk86_machine16`; the Karabas boards keep `rk86_machine`. From the submodule the Pocket uses only `src/rtl/rk86_16/`, `src/rk86_machine16.prj`, `src/sim/machine16/`, `src/sim/negative.py`, `src/roms/BIOS.BIN`, `src/roms/FONT.BIN` and `pk/`. Planned: the chip models and the machine move into their own repositories.
+Up to 0.9.0 the machine came from the Karabas core fork; the libraries took it over from there. The last fork commit the Pocket pinned: [d995355](https://github.com/BarabashkaD/karabas-go-core-rk86/commit/d995355b9a27aa20f4495a617186b3f088e77d34).
+
+From the libraries the Pocket uses only: retroMachines `machines/rk86/` (RTL, TBs, faults, `roms/monitor.bin`, `roms/font.bin`), retroICs `ics/intel/8080a/`, `8255a/`, `8257/`, `8275/` and `tools/simrun/`, retro8080Software `rk86/collections/pyhonin-1999/`. The pins: `git submodule status --recursive`; each is the one commit of its library's branch `layout-migration`, which the release brings to the library's `main` and tags `v0.1.0` (`AGENTS.md`, section 6, Release, step 0), so the pinned SHAs stay.
 
 ```mermaid
 flowchart LR
-    subgraph core["submodule: rk86_machine16 (src/rtl/rk86_16/)"]
+    subgraph core["lib/retroMachines: rk86_machine16 (machines/rk86/), chips from retroICs"]
         m16["8224 and IE4 clocks, 8080,<br/>8257, 8275, 8255, video path,<br/>address decoding"]
     end
     subgraph pk["Pocket: core_top.v, pocket_system, radio86rk_pocket"]
@@ -46,6 +50,7 @@ flowchart LR
 
 | Path | Content |
 |---|---|
+| `implementation.md` | the Pocket's deviations from the original board (`RKPOCKET-DEV-n`) |
 | `apf/`, `core/` | APF template (open-fpga/core-template da3a021) with the Analogue notices; `core/core_top.v`: pins, bridge, PLL, one `pocket_system` |
 | `rtl/` | our logic; `pocket_system.v` is everything behind the template, `radio86rk_pocket.v` the board around the machine |
 | `quartus/` | `ap_core.qsf`, `create_project.tcl`, CDC and timing report scripts |
@@ -73,20 +78,20 @@ clk_74a = 74.25 MHz
 
 ## The 16 MHz machine
 
-Origin, licence and changes of each file: the fork's [src/rtl/rk86_16/README.md](https://github.com/BarabashkaD/karabas-go-core-rk86/blob/d995355b9a27aa20f4495a617186b3f088e77d34/src/rtl/rk86_16/README.md) and the file headers. Sources of behaviour: the data sheets, then the boards (Радио 1986, Kiselev 1.4). Where the data sheets are silent, the decisions and planned real-hardware checks are in that README.
+Origin, licence and changes of each file: the libraries' `NOTICE` files and the file headers (the ROMs: retroMachines' `machines/rk86/roms/PROVENANCE.md`). Sources of behaviour: the data sheets, then the boards (Радио 1986, Kiselev 1.4). Where the data sheets are silent, the decisions and planned real-hardware checks are in retroMachines' [machines/rk86/README.md](https://github.com/BarabashkaD/retroMachines/blob/5cb0439428700b92fae5e3aed3b6ba63ff1af5d7/machines/rk86/README.md) (at the pinned commit `5cb0439`), in the records of the two clock chips that the machine models in its clock block (the 8224 and the SN7492, on the board К155ИЕ4: retroMachines [machines/rk86/ics/](https://github.com/BarabashkaD/retroMachines/tree/5cb0439428700b92fae5e3aed3b6ba63ff1af5d7/machines/rk86/ics)) and in each modelled chip's `record.md` in retroICs (8080, 8255, 8257, 8275). How the board uses the chips (the 8257's wiring and the DMA cadence, the board glue, what an undriven port reads, the monitor's programming of the chips) is in the RK86 board record: retroComputersDocs [computers/rk86/board.md](https://github.com/BarabashkaD/retroComputersDocs/blob/48ea03d265f5e325ab64345077424955d263af50/computers/rk86/board.md) (not a submodule here; at commit 48ea03d, the one commit of its branch `layout-migration`), sections "The 8257 on the board (GLUE)", GLUE-19, "Assumptions checked (GLUE)" and "The monitor's programming of the chips".
 
 | Chip | File | Model |
 |---|---|---|
-| 8080 (КР580ВМ80А) | `k580vm80a.v` | Vslav's model, unchanged but for line endings; READY high, INT low |
-| 8224, К155ИЕ4 | `rk86_clocks16.v` | Φ1 / Φ2, RESET and READY flip-flops, STSTB; dot and character clocks |
-| 8257 (КР580ВТ57) | `k580vt57.v` | to the Intel data sheet, from Tselikov's model with Sorgelig's changes |
-| 8275 (КР580ВГ75) | `k580vg75.v` | to the Intel data sheet, from the same base; HRTC and VRTC are its outputs |
-| 8255 (КР580ВВ55А) | `k580vv55.v` | to the data sheet: modes 0, 1, 2; the keyboard 8255 and the second 8255 (A000-BFFF block) |
-| video path | `rk86_video16.v` | font ROM on CC and LC, К155ИР13 shift register, К155ТМ2, RVV as on Kiselev 1.4 |
-| board | `rk86_machine16.v` | the Радио 1986 glue: address decoder, ЧТЕНИЕ = DBIN XOR MEMW, memory written by CPU WR only, start-up mapping |
+| 8080 (КР580ВМ80А) | retroICs `ics/intel/8080a/rtl/intel_8080a.v`, instance `core` of `upstream/k580vm80a.v` | Vslav's model, unchanged but for line endings; READY high, INT low |
+| 8224, К155ИЕ4 | retroMachines `machines/rk86/rtl/rk86_clocks16.v` | Φ1 / Φ2, RESET and READY flip-flops, STSTB; dot and character clocks |
+| 8257 (КР580ВТ57) | retroICs `ics/intel/8257/rtl/intel_8257.v` | to the Intel data sheet, from Tselikov's model |
+| 8275 (КР580ВГ75) | retroICs `ics/intel/8275/rtl/intel_8275.v` | to the Intel data sheet, from Tselikov's model with Sorgelig's changes; HRTC and VRTC are its outputs |
+| 8255 (КР580ВВ55А) | retroICs `ics/intel/8255a/rtl/intel_8255a.v` | to the data sheet: modes 0, 1, 2; the keyboard 8255 and the second 8255 (A000-BFFF block) |
+| video path | retroMachines `machines/rk86/rtl/rk86_video16.v` | font ROM on CC and LC, К155ИР13 shift register, К155ТМ2, RVV as on Kiselev 1.4 |
+| board | retroMachines `machines/rk86/rtl/rk86_machine16.v` | the Радио 1986 glue: address decoder, ЧТЕНИЕ = DBIN XOR MEMW, memory written by CPU WR only, start-up mapping |
 
 - **Address map** (the Радио 1986 board's design, reproduced): the decoder looks only at A15-A13 and selects one device per 8 KB block: RAM 0000-7FFF, keyboard 8255 8000-9FFF, the A000-BFFF block (second 8255), the 8275 C000-DFFF, E000-FFFF the 8257 (writes) and the monitor ROM (reads). An 8255 has 4 registers (port A, port B, port C, control), picked by its address pins A1, A0, which take address lines A1, A0; it decodes nothing else, so its registers repeat every 4 bytes of its block (A000-A003 is the copy the monitor and the ROM disk loaders use). A port is 8 pins of the chip.
-- **The A000-BFFF block**: on the board the second 8255 (D14), the interface PPI whose ports go to the external connector; a ROM disk is one peripheral on it. The machine's ports for it are `ext_rd_n`, `ext_we_n`, `ext_di` (the "window" of the fork's sources). On the Pocket: `pocket_cart_ppi` (next section).
+- **The A000-BFFF block**: on the board the second 8255 (D14), the interface PPI whose ports go to the external connector; a ROM disk is one peripheral on it. The machine's ports for it are `ext_rd_n`, `ext_we_n`, `ext_di` (the "window" of `rk86_machine16.v`). On the Pocket: `pocket_cart_ppi` (next section).
 - **DMA** (the board's wiring): the 8257 uses only channel 2, memory to the 8275; its MEMR is not connected. While AEN is high the address bus carries the 8257's address, and the 8275 receives the byte of whatever is there (RAM, an 8255, the 8275, the monitor ROM): DMA reads are decoded like CPU reads. Bursts of 8 characters; the 8275 drops DRQ at every DMA write, so the 8257 makes one HOLD period per character. The CPU keeps about 45 % of the Φ cycles; programs run slower than in emulators that model continuous bursts.
 - **Memory**: one port at `bus_a` (CPU, or 8257 while AEN); the byte follows `bus_a` one `clk` later whatever the read strobe; written only by the CPU's WR, never during AEN or while the monitor is selected; no wait states.
 - **Start-up mapping**: from reset to the first read with A15 = 1 the monitor answers every address; RAM and devices are off.
@@ -94,7 +99,7 @@ Origin, licence and changes of each file: the fork's [src/rtl/rk86_16/README.md]
 
 ## ROM disk cards (the A000-BFFF block)
 
-`rtl/pocket_cart_ppi.v`: the fork's 8255 with a ROM disk card on its ports (on Kiselev 1.4 the connector J6). Port B is ROM A0-A7, port C A8-A15, port A the ROM byte, always (no output enable). Pins programmed as inputs float high (FF). With no image in slot 2 (`loaded` low) port A reads FF. The 8255's A1, A0 come from the system address `bus_a`, also during DMA. The ROM address A22-A0 goes to `pocket_psram`, whose byte comes back as `rom_data` (at most 24 clk after an address change; the 8080 reads port A at least 167 clk after a port write).
+`rtl/pocket_cart_ppi.v`: retroICs' 8255 (`intel_8255a`) with a ROM disk card on its ports (on Kiselev 1.4 the connector J6). Port B is ROM A0-A7, port C A8-A15, port A the ROM byte, always (no output enable). Pins programmed as inputs float high (FF). With no image in slot 2 (`loaded` low) port A reads FF. The 8255's A1, A0 come from the system address `bus_a`, also during DMA. The ROM address A22-A0 goes to `pocket_psram`, whose byte comes back as `rom_data` (at most 24 clk after an address change; the 8080 reads port A at least 167 clk after a port write).
 
 The card is chosen by the image size (`pocket_slot_loader` flags `romdisk_64k`, `romdisk_card`): Pocket emulation by size, not limits of the bank card (on a real board: which card is plugged in).
 
@@ -121,7 +126,7 @@ The card is chosen by the image size (`pocket_slot_loader` flags `romdisk_64k`, 
 - The menu: the root directory in order, up to the first entry starting with 00; deleted entries (E5), long names (attribute 0F), hidden, system, label and directory entries skipped; up to 511 files on a card, 20 per page. Keys of the Cursor preset: 19h, 1Ah the line, 08h, 18h the page, 0Dh or Space runs, `Z`. It reads the BPB once, waits for keys on bank 0 (SELBK 0 before every key wait: Reset keeps the bank) and on the run key copies the loader to 7400 with a parameter block at 7403 (FAT start, data start, first cluster, size, last cluster).
 - Tape files: optional E6, start (hi, lo), end (hi, lo), end - start + 1 bytes; a checksum after them is not read. Runnable: below 64 KB, first cluster valid, end >= start, end <= 73FF, size >= header + length; the builder also refuses a range over 7400-75FF.
 - The loader: everything checked before the first RAM write outside it (the header, the size, the FAT chain of every cluster the load needs; a refusal: SELBK 0, `NOT A TAPE` or `BAD FILE`, the monitor's command loop F86C), then CLS, the copy (one FA68 per sector), SELBK 0, SP 76CF, jump to the start; no monitor call after the first payload byte but FA68.
-- Contents: the 48 tapes of `pk/` and Kiselev's BASIC, EDASM, EDDIS, OTHELLO as tapes (`tape.py`; BASIC's payload is his ROM 0200-21FF plus zeros for RAM 2000-2117, where his loader cleared only 2117h); DP/DDT left out for now (6400-76FF).
+- Contents: the 48 game tapes (retro8080Software `rk86/collections/pyhonin-1999/`) and Kiselev's BASIC, EDASM, EDDIS, OTHELLO as tapes (`tape.py`; BASIC's payload is his ROM 0200-21FF plus zeros for RAM 2000-2117, where his loader cleared only 2117h); DP/DDT left out for now (6400-76FF).
 
 ## Memories and the PSRAM
 
@@ -232,8 +237,9 @@ python -B fpga/sim/run_sim.py                      unit tests
 python -B fpga/sim/run_sim.py --negative           each fault must fail with its named error
 python -B fpga/sim/run_sim.py --slow               adds cpu16 and the system scenarios that are not skipped
 python -B fpga/sim/run_sim.py boot menu            named tests only
-python -B fpga/sim/run_core_machine.py             the fork's machine16 TB on pocket_memory, then its fault
-python -B cores/karabas-go-core-rk86/src/sim/machine16/run_machine16_sim.py [--negative] [TEST ...]
+python -B fpga/sim/run_core_machine.py             retroMachines' machine16 TB on pocket_memory, then its fault
+python -B scripts/simrun.py run machines/rk86 intel/8255a intel/8257 intel/8275 [--tier T] [--negative] [--test NAME ...]
+                                                   the libraries' tests and faults
 ```
 
 - The test list is `TESTS` in `sim/run_sim.py`. `menu`, `dpddt`, `tetris` and `fatcard` are skipped unless named.

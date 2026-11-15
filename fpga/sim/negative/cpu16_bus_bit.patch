@@ -1,7 +1,8 @@
-diff --git a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
---- a/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
-+++ b/cores/karabas-go-core-rk86/src/rtl/rk86_16/rk86_machine16.v
-@@ -105,7 +105,7 @@ function [7:0] rd_mux(input [15:0] a, input su, input [7:0] mem, input [7:0] ppa
+diff --git a/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v b/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
+index 6836b91..a07ab06 100644
+--- a/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
++++ b/lib/retroMachines/machines/rk86/rtl/rk86_machine16.v
+@@ -106,7 +106,7 @@ function [7:0] rd_mux(input [15:0] a, input su, input [7:0] mem, input [7:0] ppa
  endfunction
  // the CPU reads only while AEN is low, where bus_a is cpu_a; the 8275 takes a DMA byte while AEN is high: the
  // device at the 8257's address, as the board's ЧТЕНИЕ (the 8257 MEMW) enables it

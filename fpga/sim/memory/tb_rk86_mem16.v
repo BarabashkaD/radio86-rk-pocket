@@ -1,10 +1,11 @@
-// The memory model of the fork's machine16 testbench built from pocket_memory (spec 9.1-6 of 0.8.0):
-//   python -B <core>/src/sim/machine16/run_machine16_sim.py machine16
-//       --mem <repo>/fpga/sim/memory/tb_rk86_mem16.v <repo>/fpga/rtl/pocket_memory.v
-// (absolute paths; fpga/sim/run_core_machine.py builds that command). The ports of the fork's
+// The memory model of the machine16 testbench of retroMachines (machines/rk86) built from pocket_memory
+// (spec 9.1-6 of 0.8.0):
+//   python -B scripts/simrun.py run machines/rk86 --tier standard
+//       --replace <retroMachines>/machines/rk86/tb/tb_rk86_mem16.v=<repo>/fpga/sim/memory/tb_rk86_mem16.v,<repo>/fpga/rtl/pocket_memory.v
+// (absolute paths; fpga/sim/run_core_machine.py builds that command). The ports of the machine TB's
 // tb_rk86_mem16. The testbench fills bios at time 0 ($readmemh); the monitor is copied into the
 // 8000-87FF of pocket_memory after #1. pocket_memory keeps its own RAM, which starts at zero; no
-// loader, no reset. The time unit of the fork's testbench (1 ns): #1 is the first clk edge, in reset.
+// loader, no reset. The time unit of the machine testbench (1 ns): #1 is the first clk edge, in reset.
 `timescale 1ns/1ns
 `default_nettype none
 module tb_rk86_mem16(
