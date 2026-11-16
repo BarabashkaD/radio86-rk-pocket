@@ -11,7 +11,7 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 ## Status
 
 - Latest release: [0.10.0](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.10.0) (2026-11-16). Changes: [CHANGELOG.md](CHANGELOG.md).
-- Run on a Pocket by the maintainer: the test build 0.10.0-retro-test (2026-11-16).
+- Run on a Pocket by the maintainer: 0.10.0, on the release's files (2026-11-16).
 
 ## Features
 
