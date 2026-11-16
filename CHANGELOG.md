@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (2026-11-16)
 
-- The chip models and the machine come from retroICs / retroMachines (the one commit of each library's branch `layout-migration` until v0.1.0); the game tapes from retro8080Software; no change in behaviour.
-- Package licence files: `LICENSE-tselikov-bsd.txt` (the licence of the 8257 and 8275 models) and `NOTICE-retro.txt` (the NOTICE files of retroMachines and retroICs) replace `LICENSE-karabas-core.txt`.
-- Package wording: `info.txt` credits Sorgelig's changes for the 8275 model only (the 8257's base is Dmitry Tselikov's); `ROMDISKS.txt` names the games' source as the 1999 collection in retro8080Software; `NOTICE-retro.txt` gives the CC BY 3.0 URI of the 8080 model; its retroMachines part credits the authors of the Radio-86RK monitor. `info.txt` and README's Credits name the authors of the Radio-86RK and its monitor (D. Gorshkov, G. Zelenko, Yu. Ozerov, S. Popov).
-- Docs: AGENTS.md, README.md and `fpga/README.md` describe the libraries in place of the Karabas fork; new `fpga/implementation.md` lists the Pocket's deviations from the original board (`RKPOCKET-DEV-n`).
+- The machine and the chip models are built from retroMachines and retroICs, the game tapes from retro8080Software. The core works as before.
+- Package licence files: `LICENSE-tselikov-bsd.txt` (the 8257 and 8275 models) and `NOTICE-retro.txt` (the NOTICE files of retroMachines and retroICs) replace `LICENSE-karabas-core.txt`.
+- Credits: `info.txt` and README name the authors of the Radio-86RK and its monitor (D. Gorshkov, G. Zelenko, Yu. Ozerov, S. Popov); `info.txt` credits Sorgelig for the 8275 model only.
+- New `fpga/implementation.md`: the Pocket's deviations from the original board.
 
 ## 0.9.0 (2026-11-14)
 

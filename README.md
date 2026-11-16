@@ -10,17 +10,14 @@ An openFPGA core of the Radio-86RK home computer for the [Analogue Pocket](https
 
 ## Status
 
-- Latest release: [0.9.0](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.9.0) (2026-11-14): ROM disk images up to 8 MB in the Pocket's PSRAM, the J6 bank card, the 32 KB mirror, the J6 card menu (`card.bin`), the FAT16 card (`fatcard.bin`) and the package without ROM disk images (the images as separate downloads). Changes: [CHANGELOG.md](CHANGELOG.md).
-- 0.8.2 (2026-11-11) ran on a Pocket by the maintainer.
-- An earlier PSRAM test build (10e6cf4, before the J6 card) ran on a Pocket by the maintainer (2026-11-13).
-- The test build 0.8.3-j6-test with the 0.9.0 changes ran on a Pocket by the maintainer (2026-11-13): `card.bin` and `fatcard.bin` worked.
-- 0.9.0 ran on a Pocket by the maintainer, on the release's files (2026-11-14). It is the first release whose files were made by the release workflow (`.github/workflows/release.yml`).
+- Latest release: [0.10.0](https://github.com/BarabashkaD/radio86-rk-pocket/releases/tag/v0.10.0) (2026-11-16). Changes: [CHANGELOG.md](CHANGELOG.md).
+- Run on a Pocket by the maintainer: the test build 0.10.0-retro-test (2026-11-16).
 
 ## Features
 
 - The original's timing: 16 MHz timebase, CPU 1.778 MHz, 8 MHz dots, 50 Hz frames. CPU, DMA, CRT controller and PPI follow their data sheets; the video DMA takes CPU time as on the original ([fpga/README.md](fpga/README.md#the-16-mhz-machine)).
 - ROM disk images as separate downloads: Kiselev's ROM disk with a program menu (at its source), 5 game disks (64 KB each) with 48 games, a J6 card menu and a FAT16 card ([ROM disk images](#rom-disk-images)).
-- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. From 0.9.0 on both are on the release page; both can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
+- Any ROM disk image up to 8 MB, kept in the Pocket's PSRAM and reloadable from the core's menu. Images above 64 KB are a bank card: a card of whole disks with a card menu, or a FAT16 card of tape files with a file menu. Both are on the release page and can be built from source ([ROM disks and cards](#rom-disks-and-cards)).
 - On-screen keyboard (L+R): the 67 real keys, LAT and RUS, Shift and Ctrl, three palettes.
 - Button presets for games: cursor keys, digits 7-8-9-6 or 8-4-6-2, WASD, on the D-pad or A B X Y.
 - Screen: 408 x 300 at 60 Hz, about 25 picture updates per second. Sound: the beeper (INTE), 48 kHz.
@@ -168,12 +165,12 @@ An image above 64 KB is a J6 bank card. Old programs and the monitor's `R` see t
 - Power-up, a load of the ROM disk slot and Core Settings > Cold boot select bank 0. Core Settings > Reset keeps the bank, as a real card has no reset line on J6.
 - A program that writes A002/A003 (for example LORUNNER.GAM and SDEMISE.GAM drive port C for sound), or Ctrl-C during a load, can leave another bank selected. Then Cold boot or load the ROM disk slot again.
 - The bank cannot be read back.
-- Card images are not in the package: `card.bin` and `fatcard.bin` are release assets from 0.9.0 on ([ROM disk images](#rom-disk-images)), or build them (below).
+- Card images are not in the package: `card.bin` and `fatcard.bin` are on the release page ([ROM disk images](#rom-disk-images)), or build them (below).
 - A reference design of a real card for J6 (never built): [hardware/j6-bank-card.md](hardware/j6-bank-card.md).
 
 ### J6 card menu
 
-A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. From 0.9.0 on, the release page has `card.bin`; to build it yourself:
+A card of whole disks: bank 0 holds the card menu, each further bank one disk with its own menu. The release page has `card.bin`; to build it yourself:
 
 ```text
 git clone --recursive <repo url>
@@ -198,7 +195,7 @@ An 8 MB card image that is a FAT16 file system: 52 tape files (the 48 game tapes
 
 The menu's three pages with the 52 files: name, type and load address range; the arrow marks the selected file.
 
-From 0.9.0 on, the release page has `fatcard.bin`; to build it yourself:
+The release page has `fatcard.bin`; to build it yourself:
 
 The builder needs mtools: on Windows the MSYS2 UCRT64 package `mingw-w64-ucrt-x86_64-mtools`, on Linux `apt install mtools`; set `MTOOLS_DIR` to their directory, or put them on PATH.
 
@@ -222,7 +219,7 @@ Copy `fatcard.bin` to `Assets/radio86rk/BarabashkaD.Radio86RK/` and load it in t
 
 ## Game disks
 
-`romdisk-1.bin` to `romdisk-5.bin` (64 KB each; core 0.8.2 or later, an older core refuses them): the 48 game tapes of the 1999 collection in [retro8080Software](https://github.com/BarabashkaD/retro8080Software) (`rk86/collections/pyhonin-1999/`), each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). From the first release after 0.8.2 on they are on the release page ([ROM disk images](#rom-disk-images)), not in the package (0.8.2's package had them); `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
+`romdisk-1.bin` to `romdisk-5.bin` (64 KB each): the 48 game tapes of the 1999 collection in [retro8080Software](https://github.com/BarabashkaD/retro8080Software) (`rk86/collections/pyhonin-1999/`), each disk with a menu loader derived from Sergey Kiselev's (`scripts/romdisk/rom_loader_games.asm`, GPL-3.0). On the release page ([ROM disk images](#rom-disk-images)), not in the package; `python -B scripts/romdisk/build_romdisks.py` builds them into `build/romdisks`. The package's `ROMDISKS.txt` and the core's info list the games too.
 
 <!-- game disks: python -B scripts/romdisk/build_romdisks.py --readme -->
 **`romdisk-1.bin`** (9 games)
@@ -351,8 +348,8 @@ Design, build and tests: [fpga/README.md](fpga/README.md). Instructions for codi
 
 - **Д. Горшков, Г. Зеленко, Ю. Озеров, С. Попов** (D. Gorshkov, G. Zelenko, Yu. Ozerov, S. Popov): the Radio-86RK and its monitor (Радио 1986).
 - **Dmitry Tselikov**: the FPGA Radio-86RK replica (2010-2011; [his FPGA page](http://bashkiria-2m.narod.ru/index/fpga/0-12)); his DMA and CRT models are the base of this core's 8257 and 8275.
-- **[Karabas Go core](https://github.com/andykarpov/karabas-go-core-rk86)** by Andy Karpov, with ports by Dmitriy Schapotschkin and Oleh Chastukhin: the monitor, font and game tapes first came from it. The machine `rk86_machine16` was made in the fork [BarabashkaD/karabas-go-core-rk86](https://github.com/BarabashkaD/karabas-go-core-rk86) (branch `rk86-16mhz`) up to 0.9.0.
-- **Libraries**: the machine, the monitor and the font now come from [retroMachines](https://github.com/BarabashkaD/retroMachines), the chip models from [retroICs](https://github.com/BarabashkaD/retroICs), the game tapes from [retro8080Software](https://github.com/BarabashkaD/retro8080Software), all first taken from the fork.
+- **[Karabas Go core](https://github.com/andykarpov/karabas-go-core-rk86)** by Andy Karpov, with ports by Dmitriy Schapotschkin and Oleh Chastukhin: the source of the monitor, the font and the game tapes; the machine `rk86_machine16` was first written in its fork [BarabashkaD/karabas-go-core-rk86](https://github.com/BarabashkaD/karabas-go-core-rk86) (branch `rk86-16mhz`).
+- **Libraries**: [retroMachines](https://github.com/BarabashkaD/retroMachines) (the machine, the monitor, the font), [retroICs](https://github.com/BarabashkaD/retroICs) (the chip models), [retro8080Software](https://github.com/BarabashkaD/retro8080Software) (the game tapes).
 - **Vslav** (1801BM1): the 8080 model, CC BY 3.0 (<https://creativecommons.org/licenses/by/3.0/>), from the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) at `4b37da2`.
 - **Sorgelig**: the [Apogee core](https://github.com/MiSTer-devel/Apogee_MiSTer) for MiSTer, where the 8080, 8257 and 8275 models were taken from; his changes are in the base of the 8275 model.
 - **Sergey Kiselev**: the [Radio-86RK re-make](https://github.com/skiselev/radio-86rk): the ROM disk, the keyboard design and colours, the schematics this core follows with the original's (Радио 1986 No. 4-5).
